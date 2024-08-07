@@ -21,7 +21,7 @@ Conditional ASM allows you to include or exclude certain code blocks if a user d
 ```asm
 %define DEBUG 1
 
-%ifdef DEBUG == 1
+%ifdef $DEBUG == 1
 hlt
 %endif
 ```
@@ -39,8 +39,8 @@ Compile time arithmatic allows you to perform arithmatic on compile time known v
 
 ```asm
 %define a 1
-ldi r1 a + a
-ldi r2 $reg r1 + a
+ldi r1 $a + $a
+ldi r2 $reg r1 + $a
 str r1 r2 0
 ldi r3 $mem $reg r1
 ```
