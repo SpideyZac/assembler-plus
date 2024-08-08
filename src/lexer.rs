@@ -54,15 +54,20 @@ impl Lexer {
 
     fn lex_int(&mut self) -> String {
         let mut int = String::new();
-        if self.current_char == '-' {
-            int.push(self.current_char);
-            self.read_char();
-        }
         while self.current_char.is_digit(10) {
             int.push(self.current_char);
             self.read_char();
         }
         int
+    }
+
+    fn lex_identifier(&mut self) -> String {
+        let mut identifier = String::new();
+        while self.current_char.is_alphanumeric() {
+            identifier.push(self.current_char);
+            self.read_char();
+        }
+        identifier
     }
 
     pub fn lex(&mut self) -> Result<Vec<Token>, Error> {
@@ -88,7 +93,7 @@ impl Lexer {
                     self.read_char();
                     Token::new(TokenType::Dot, None, self.current_line, self.current_column)
                 }
-                _ if self.current_char.is_digit(10) || self.current_char == '-' => {
+                _ if self.current_char.is_digit(10) => {
                     let int = self.lex_int();
                     Token::new(
                         TokenType::Number,
@@ -98,11 +103,10 @@ impl Lexer {
                     )
                 }
                 _ if self.current_char.is_alphabetic() => {
-                    let char = self.current_char;
-                    self.read_char();
+                    let identifier = self.lex_identifier();
                     Token::new(
-                        TokenType::Char,
-                        Some(char.to_string()),
+                        TokenType::Identifier,
+                        Some(identifier),
                         self.current_line,
                         self.current_column,
                     )

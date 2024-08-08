@@ -4,7 +4,7 @@ pub enum TokenType {
     Percent,
     Dot,
     Number,
-    Char,
+    Identifier,
 }
 
 #[derive(Debug, Clone, PartialEq)]
