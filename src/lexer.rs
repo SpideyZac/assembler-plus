@@ -74,12 +74,6 @@ impl Lexer {
         while self.current_char != '\0' {
             self.skip_whitespace();
             let token = match self.current_char {
-                '\0' => Token::new(
-                    TokenType::EOF,
-                    None,
-                    self.current_line,
-                    self.current_column,
-                ),
                 '%' => {
                     self.read_char();
                     Token::new(
@@ -122,6 +116,12 @@ impl Lexer {
             };
             self.tokens.push(token);
         }
+        self.tokens.push(Token::new(
+            TokenType::EOF,
+            None,
+            self.current_line,
+            self.current_column,
+        ));
         Ok(self.tokens.clone())
     }
 
