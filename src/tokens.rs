@@ -3,8 +3,8 @@ pub enum TokenType {
     EOF,
     Percent,
     Dot,
-    Int,
-    Identifier,
+    Number,
+    Char,
 }
 
 #[derive(Debug, Clone, PartialEq)]
