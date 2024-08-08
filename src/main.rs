@@ -16,6 +16,5 @@ fn main() {
     } else {
         let error = tokens.unwrap_err();
         emitter.emit_error(error);
-        println!("abc");
     }
 }
