@@ -12,7 +12,7 @@ ldi r2 247
 str r2 r1 0
 %endmacro
 
-WRITE_CHAR 5
+%WRITE_CHAR 5
 ```
 
 ## Conditional ASM 🔴
