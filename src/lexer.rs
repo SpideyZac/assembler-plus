@@ -34,19 +34,17 @@ impl Lexer {
         self.current_column += 1;
     }
 
-    fn _peek_char(&self) -> char {
-        if self.current_index >= self.code.len() {
-            '\0'
-        } else {
-            self.code.chars().nth(self.current_index).unwrap()
-        }
-    }
-
     fn skip_whitespace(&mut self) {
         while self.current_char.is_whitespace() {
             if self.current_char == '\n' {
                 self.current_line += 1;
                 self.current_column = 1;
+                self.tokens.push(Token::new(
+                    TokenType::NewLine,
+                    None,
+                    self.current_line,
+                    self.current_column,
+                ));
             }
             self.read_char();
         }
@@ -54,6 +52,10 @@ impl Lexer {
 
     fn lex_int(&mut self) -> String {
         let mut int = String::new();
+        if self.current_char == '-' {
+            int.push(self.current_char);
+            self.read_char();
+        }
         while self.current_char.is_digit(10) {
             int.push(self.current_char);
             self.read_char();
@@ -61,48 +63,71 @@ impl Lexer {
         int
     }
 
-    fn lex_identifier(&mut self) -> String {
-        let mut identifier = String::new();
-        while self.current_char.is_alphanumeric() {
-            identifier.push(self.current_char);
+    fn lex_ident(&mut self) -> String {
+        let mut label = String::new();
+        while self.current_char.is_alphabetic() || (self.current_char.is_digit(10) && !label.is_empty()) {
+            label.push(self.current_char);
             self.read_char();
         }
-        identifier
+        label
     }
 
     pub fn lex(&mut self) -> Result<Vec<Token>, Error> {
         while self.current_char != '\0' {
             self.skip_whitespace();
             let token = match self.current_char {
+                ';' => {
+                    while self.current_char != '\n' {
+                        self.read_char();
+                    }
+                    continue;
+                }
+                '$' => {
+                    self.read_char();
+                    let label = self.lex_ident();
+                    Token::new(
+                        TokenType::MacroExpression,
+                        Some(label.clone()),
+                        self.current_line,
+                        self.current_column - label.len(),
+                    )
+                }
                 '%' => {
                     self.read_char();
+                    let label = self.lex_ident();
                     Token::new(
-                        TokenType::Percent,
-                        None,
+                        TokenType::MacroSymbol,
+                        Some(label.clone()),
                         self.current_line,
-                        self.current_column,
+                        self.current_column - label.len(),
                     )
                 }
                 '.' => {
                     self.read_char();
-                    Token::new(TokenType::Dot, None, self.current_line, self.current_column)
+                    let label = self.lex_ident();
+                    Token::new(
+                        TokenType::Label,
+                        Some(label.clone()),
+                        self.current_line,
+                        self.current_column - label.len(),
+                    )
                 }
-                _ if self.current_char.is_digit(10) => {
+                _ if self.current_char.is_digit(10) || self.current_char == '-' => {
                     let int = self.lex_int();
                     Token::new(
-                        TokenType::Number,
-                        Some(int),
+                        TokenType::Int,
+                        Some(int.clone()),
                         self.current_line,
-                        self.current_column,
+                        self.current_column - int.len(),
                     )
                 }
                 _ if self.current_char.is_alphabetic() => {
-                    let identifier = self.lex_identifier();
+                    let identifier = self.lex_ident();
                     Token::new(
-                        TokenType::Identifier,
-                        Some(identifier),
+                        TokenType::Symbol,
+                        Some(identifier.clone()),
                         self.current_line,
-                        self.current_column,
+                        self.current_column - identifier.len(),
                     )
                 }
                 _ => {

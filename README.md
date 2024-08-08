@@ -47,6 +47,7 @@ ldi r3 $mem $reg r1
 
 ## TODO
 * Add standard library
+* Register templating
 * Add warnings
 * Optimizer
 

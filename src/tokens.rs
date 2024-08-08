@@ -1,10 +1,12 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
     EOF,
-    Percent,
-    Dot,
-    Number,
-    Identifier,
+    NewLine,
+    Int,
+    Label,
+    Symbol,
+    MacroSymbol,
+    MacroExpression,
 }
 
 #[derive(Debug, Clone, PartialEq)]
