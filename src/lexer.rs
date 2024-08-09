@@ -65,7 +65,9 @@ impl Lexer {
 
     fn lex_ident(&mut self) -> String {
         let mut label = String::new();
-        while self.current_char.is_alphabetic() || (self.current_char.is_digit(10) && !label.is_empty()) {
+        while self.current_char.is_alphabetic()
+            || (self.current_char.is_digit(10) && !label.is_empty())
+        {
             label.push(self.current_char);
             self.read_char();
         }
@@ -76,6 +78,7 @@ impl Lexer {
         while self.current_char != '\0' {
             self.skip_whitespace();
             let token = match self.current_char {
+                '\0' => break,
                 ';' => {
                     while self.current_char != '\n' {
                         self.read_char();
