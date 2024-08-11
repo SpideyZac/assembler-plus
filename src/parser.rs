@@ -11,6 +11,7 @@ token_ast! {
         [label] => { kind: TokenKind::Label(_), prompt: "label" },
         [int] => { kind: TokenKind::Int(_), prompt: "integer literal" },
         [ident] => { kind: TokenKind::Identifier(_), prompt: "identifier" },
+        [chr] => { kind: TokenKind::Char(_), prompt: "character literal" },
         [eof] => { kind: TokenKind::Eof, prompt: "end of file" },
     }
 }
@@ -39,4 +40,5 @@ pub enum AstStmtOperand {
     Label(Token![label]),
     Int(Token![int]),
     Identifier(Token![ident]),
+    Char(Token![chr]),
 }

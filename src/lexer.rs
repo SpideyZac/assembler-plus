@@ -22,6 +22,8 @@ pub enum TokenKind {
     Int(u8),
     #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*")]
     Identifier(String),
+    #[regex(r"'.'")]
+    Char(Char),
 
     #[eof]
     Eof,
@@ -143,5 +145,30 @@ impl fmt::Display for Mnemonic {
             Mnemonic::Lod => write!(f, "lod"),
             Mnemonic::Str => write!(f, "str"),
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Char {
+    pub value: u8,
+}
+
+impl FromStr for Char {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let all_chars = [' ', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '.', '!', '?'];
+        let value = s.chars().nth(1).unwrap();
+        if !all_chars.contains(&value) {
+            return Err(());
+        }
+        let index = all_chars.iter().position(|&c| c == value).unwrap();
+        Ok(Char { value: index as u8 })
+    }
+}
+
+impl fmt::Display for Char {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "'{}'", self.value)
     }
 }
