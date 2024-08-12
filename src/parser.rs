@@ -3,8 +3,8 @@ use crate::lexer::{Token, TokenKind};
 use laps::prelude::*;
 
 token_ast! {
-    #[derive(Debug, PartialEq)]
-    macro Token<TokenKind> {
+    #[derive(Debug, PartialEq, Clone)]
+    pub macro Token<TokenKind> {
         [nl] => { kind: TokenKind::Newline, prompt: "new line" },
         [mnemonic] => { kind: TokenKind::Mnemonic(_), prompt: "mnemonic" },
         [register] => { kind: TokenKind::Register(_), prompt: "register" },
@@ -16,7 +16,7 @@ token_ast! {
     }
 }
 
-#[derive(Parse, Debug)]
+#[derive(Parse, Debug, Clone)]
 #[token(Token)]
 pub enum Statement {
     AstStmt(AstStmt),
@@ -25,7 +25,7 @@ pub enum Statement {
     Newline(Token![nl]),
 }
 
-#[derive(Parse, Debug)]
+#[derive(Parse, Debug, Clone)]
 #[token(Token)]
 pub struct AstStmt {
     pub mnemonic: Token![mnemonic],
@@ -33,7 +33,7 @@ pub struct AstStmt {
     _nl: Token![nl],
 }
 
-#[derive(Parse, Debug)]
+#[derive(Parse, Debug, Clone, PartialEq)]
 #[token(Token)]
 pub enum AstStmtOperand {
     Register(Token![register]),

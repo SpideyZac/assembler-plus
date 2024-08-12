@@ -175,7 +175,10 @@ impl FromStr for Char {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let all_chars = [' ', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '.', '!', '?'];
+        let all_chars = [
+            ' ', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p',
+            'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '.', '!', '?',
+        ];
         let value = s.chars().nth(1).unwrap();
         if !all_chars.contains(&value) {
             return Err(());

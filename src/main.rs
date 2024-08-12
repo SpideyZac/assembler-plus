@@ -1,3 +1,4 @@
+mod codegen;
 mod lexer;
 mod parser;
 
@@ -24,16 +25,26 @@ fn main() -> Result<()> {
     let mut tokens: TokenBuffer<laps::lexer::Lexer<Reader<std::fs::File, 1024>, TokenKind>, Token> =
         TokenBuffer::new(lexer);
 
+    let mut statements = Vec::new();
+
     loop {
         if let Ok(stmt) = tokens.parse::<Statement>() {
             match stmt {
                 Statement::Eof(_) => break,
-                _ => println!("{:#?}", stmt),
+                _ => statements.push(stmt),
             }
         } else {
             span.log_summary();
             exit(span.error_num() as i32);
         }
+    }
+
+    let mut codegen = codegen::Codegen::new(statements);
+    if let Ok(output) = codegen.generate() {
+        println!("{}", output);
+    } else {
+        span.log_summary();
+        exit(span.error_num() as i32);
     }
 
     Ok(())
