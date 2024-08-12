@@ -383,11 +383,7 @@ impl Codegen {
                         if value.is_none() {
                             value = self.labels_table.get(&label.name);
                             if value.is_none() {
-                                eval_err!(
-                                    l.0.span.clone(),
-                                    "undefined label '{}'",
-                                    label.name
-                                );
+                                eval_err!(l.0.span.clone(), "undefined label '{}'", label.name);
                             }
                         }
                         StmtValue::Int(*value.unwrap() as i64)
