@@ -1,7 +1,7 @@
 use core::fmt;
 use std::str::FromStr;
 
-use laps::lexer::int_literal;
+use laps::lexer::signed_int_literal;
 use laps::prelude::*;
 
 #[token_kind]
@@ -18,8 +18,8 @@ pub enum TokenKind {
     Register(Register),
     #[regex(r"\.[a-zA-Z_][a-zA-Z0-9_]*")]
     Label(Label),
-    #[regex(r"[0-9]|[1-9][0-9]+|0x[0-9a-fA-F]+", int_literal)]
-    Int(u8),
+    #[regex(r"-?[0-9]|-?[1-9][0-9]+", signed_int_literal)]
+    Int(i16),
     #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*")]
     Identifier(String),
     #[regex(r"'.'")]
