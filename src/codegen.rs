@@ -37,10 +37,6 @@ impl Codegen {
         res.symbol_table.insert("ne".to_string(), StmtValue::Int(1));
         res.symbol_table.insert("ge".to_string(), StmtValue::Int(2));
         res.symbol_table.insert("lt".to_string(), StmtValue::Int(3));
-        res.symbol_table.insert("=".to_string(), StmtValue::Int(0));
-        res.symbol_table.insert("!=".to_string(), StmtValue::Int(1));
-        res.symbol_table.insert(">=".to_string(), StmtValue::Int(2));
-        res.symbol_table.insert("<".to_string(), StmtValue::Int(3));
         res.symbol_table.insert("z".to_string(), StmtValue::Int(0));
         res.symbol_table.insert("nz".to_string(), StmtValue::Int(1));
         res.symbol_table.insert("c".to_string(), StmtValue::Int(2));
