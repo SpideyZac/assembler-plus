@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::lexer::{Mnemonic, TokenKind};
-use crate::parser::{AstStmt, AstStmtOperand, Statement, __token_ast_Token};
+use crate::parser::{AstStmt, AstStmtOperand, MacroCall, Statement, __token_ast_Token};
 
 use laps::log_error;
 use laps::span::{Error, Span};
@@ -328,6 +328,135 @@ impl Codegen {
         Ok(())
     }
 
+    fn generate_macro_call(&mut self, macrocall: MacroCall) -> Result<String, Error> {
+        let name = match macrocall.name.0.kind {
+            TokenKind::MacroCall(m) => m.name,
+            _ => panic!("unreachable"),
+        };
+        let m = self.macros.get(&name);
+        if m.is_none() {
+            eval_err!(macrocall.name.0.span.clone(), "undefined macro '{}'", name);
+        }
+        let m = m.unwrap();
+        if m.args.len() != macrocall.args.len() {
+            eval_err!(
+                macrocall.name.0.span.clone(),
+                "macro '{}' expects {} arguments, got {}",
+                name,
+                m.args.len(),
+                macrocall.args.len()
+            );
+        }
+
+        let prelabels = self.labels_table.clone();
+        for (k, _) in prelabels.iter() {
+            let v = self.labels_table.get(k).unwrap();
+            if *v >= self.instruction_pointer {
+                self.labels_table
+                    .entry(k.clone())
+                    .and_modify(|e| *e += m.body.len() as u64);
+            }
+        }
+
+        let mut macro_def = HashMap::new();
+        for (i, arg) in m.args.iter().enumerate() {
+            let value = match macrocall.args[i].clone() {
+                AstStmtOperand::Int(i) => match i.0.kind {
+                    TokenKind::Int(int) => StmtValue::Int(int as i64),
+                    _ => panic!("unreachable"),
+                },
+                AstStmtOperand::Char(c) => match c.0.kind {
+                    TokenKind::Char(char) => StmtValue::Char(char.value),
+                    _ => panic!("unreachable"),
+                },
+                AstStmtOperand::Register(r) => match r.0.kind {
+                    TokenKind::Register(reg) => StmtValue::Int(reg.number as i64),
+                    _ => panic!("unreachable"),
+                },
+                AstStmtOperand::Label(l) => match l.0.kind {
+                    TokenKind::Label(label) => {
+                        let mut name = label.name.clone();
+                        if self.current_macros.len() > 0 {
+                            name.push_str(&format!("_{}", self.macro_uuid));
+                        }
+                        let mut value = self.labels_table.get(&name);
+                        if value.is_none() {
+                            value = self.labels_table.get(&label.name);
+                            if value.is_none() {
+                                eval_err!(
+                                    l.0.span.clone(),
+                                    "undefined label '{}'",
+                                    label.name
+                                );
+                            }
+                        }
+                        StmtValue::Int(*value.unwrap() as i64)
+                    }
+                    _ => panic!("unreachable"),
+                },
+                AstStmtOperand::Identifier(ident) => match ident.0.kind {
+                    TokenKind::Identifier(i) => {
+                        let value = self.symbol_table.get(&i.to_string());
+                        if value.is_none() {
+                            eval_err!(ident.0.span.clone(), "undefined identifier '{}'", i);
+                        }
+                        self.check_stmt_operand(
+                            ident.0.span.clone(),
+                            value.unwrap(),
+                            vec!["int", "char"],
+                        )?;
+                        value.unwrap().clone()
+                    }
+                    _ => panic!("unreachable"),
+                },
+                AstStmtOperand::MacroExpression(macroexpr) => {
+                    let name = match macroexpr.clone().0.kind {
+                        TokenKind::MacroExpression(m) => m.name,
+                        _ => panic!("unreachable"),
+                    };
+                    let mut value = None;
+                    for macro_def in self.current_macro_defs.iter().rev() {
+                        value = macro_def.get(&name);
+                        if value.is_some() {
+                            self.check_stmt_operand(
+                                macroexpr.0.span.clone(),
+                                value.unwrap(),
+                                vec!["int", "char"],
+                            )?;
+                            break;
+                        }
+                    }
+                    if value.is_none() {
+                        eval_err!(
+                            macroexpr.0.span.clone(),
+                            "undefined macro expression '{}'",
+                            name
+                        );
+                    }
+                    value.unwrap().clone()
+                }
+            };
+            if macro_def.contains_key(arg) {
+                eval_err!(
+                    macrocall.name.0.span.clone(),
+                    "redefinition of argument '{}'",
+                    arg
+                );
+            }
+            macro_def.insert(arg.clone(), value);
+        }
+        self.current_macros.push(name.clone());
+        self.current_macro_defs.push(macro_def);
+        let mut output = String::new();
+        for stmt in m.body.clone() {
+            let out = self.generate_stmt(stmt)?;
+            output.push_str(&out);
+        }
+        self.current_macros.pop();
+        self.current_macro_defs.pop();
+        Ok(output)
+    }
+
     fn generate_stmt(&mut self, stmt: Statement) -> Result<String, Error> {
         match stmt {
             Statement::AstStmt(ast) => {
@@ -346,132 +475,8 @@ impl Codegen {
                 }
             }
             Statement::MacroCall(macrocall) => {
-                let name = match macrocall.name.0.kind {
-                    TokenKind::MacroCall(m) => m.name,
-                    _ => panic!("unreachable"),
-                };
-                let m = self.macros.get(&name);
-                if m.is_none() {
-                    eval_err!(macrocall.name.0.span.clone(), "undefined macro '{}'", name);
-                }
-                let m = m.unwrap();
-                if m.args.len() != macrocall.args.len() {
-                    eval_err!(
-                        macrocall.name.0.span.clone(),
-                        "macro '{}' expects {} arguments, got {}",
-                        name,
-                        m.args.len(),
-                        macrocall.args.len()
-                    );
-                }
-
-                let prelabels = self.labels_table.clone();
-                for (k, _) in prelabels.iter() {
-                    let v = self.labels_table.get(k).unwrap();
-                    if *v >= self.instruction_pointer {
-                        self.labels_table
-                            .entry(k.clone())
-                            .and_modify(|e| *e += m.body.len() as u64);
-                    }
-                }
-
-                let mut macro_def = HashMap::new();
-                for (i, arg) in m.args.iter().enumerate() {
-                    let value = match macrocall.args[i].clone() {
-                        AstStmtOperand::Int(i) => match i.0.kind {
-                            TokenKind::Int(int) => StmtValue::Int(int as i64),
-                            _ => panic!("unreachable"),
-                        },
-                        AstStmtOperand::Char(c) => match c.0.kind {
-                            TokenKind::Char(char) => StmtValue::Char(char.value),
-                            _ => panic!("unreachable"),
-                        },
-                        AstStmtOperand::Register(r) => match r.0.kind {
-                            TokenKind::Register(reg) => StmtValue::Int(reg.number as i64),
-                            _ => panic!("unreachable"),
-                        },
-                        AstStmtOperand::Label(l) => match l.0.kind {
-                            TokenKind::Label(label) => {
-                                let mut name = label.name.clone();
-                                if self.current_macros.len() > 0 {
-                                    name.push_str(&format!("_{}", self.macro_uuid));
-                                }
-                                let mut value = self.labels_table.get(&name);
-                                if value.is_none() {
-                                    value = self.labels_table.get(&label.name);
-                                    if value.is_none() {
-                                        eval_err!(
-                                            l.0.span.clone(),
-                                            "undefined label '{}'",
-                                            label.name
-                                        );
-                                    }
-                                }
-                                StmtValue::Int(*value.unwrap() as i64)
-                            }
-                            _ => panic!("unreachable"),
-                        },
-                        AstStmtOperand::Identifier(ident) => match ident.0.kind {
-                            TokenKind::Identifier(i) => {
-                                let value = self.symbol_table.get(&i.to_string());
-                                if value.is_none() {
-                                    eval_err!(ident.0.span.clone(), "undefined identifier '{}'", i);
-                                }
-                                self.check_stmt_operand(
-                                    ident.0.span.clone(),
-                                    value.unwrap(),
-                                    vec!["int", "char"],
-                                )?;
-                                value.unwrap().clone()
-                            }
-                            _ => panic!("unreachable"),
-                        },
-                        AstStmtOperand::MacroExpression(macroexpr) => {
-                            let name = match macroexpr.clone().0.kind {
-                                TokenKind::MacroExpression(m) => m.name,
-                                _ => panic!("unreachable"),
-                            };
-                            let mut value = None;
-                            for macro_def in self.current_macro_defs.iter().rev() {
-                                value = macro_def.get(&name);
-                                if value.is_some() {
-                                    self.check_stmt_operand(
-                                        macroexpr.0.span.clone(),
-                                        value.unwrap(),
-                                        vec!["int", "char"],
-                                    )?;
-                                    break;
-                                }
-                            }
-                            if value.is_none() {
-                                eval_err!(
-                                    macroexpr.0.span.clone(),
-                                    "undefined macro expression '{}'",
-                                    name
-                                );
-                            }
-                            value.unwrap().clone()
-                        }
-                    };
-                    if macro_def.contains_key(arg) {
-                        eval_err!(
-                            macrocall.name.0.span.clone(),
-                            "redefinition of argument '{}'",
-                            arg
-                        );
-                    }
-                    macro_def.insert(arg.clone(), value);
-                }
-                self.current_macros.push(name.clone());
-                self.current_macro_defs.push(macro_def);
-                let mut output = String::new();
-                for stmt in m.body.clone() {
-                    let out = self.generate_stmt(stmt)?;
-                    output.push_str(&out);
-                }
-                self.current_macros.pop();
-                self.current_macro_defs.pop();
-                Ok(output)
+                let res = self.generate_macro_call(macrocall)?;
+                Ok(res)
             }
             Statement::Label(lbl) => {
                 if self.current_macros.len() > 0 {
