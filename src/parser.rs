@@ -1,5 +1,6 @@
 use crate::lexer::{Token, TokenKind};
 
+use laps::parse::Parse;
 use laps::prelude::*;
 
 token_ast! {
@@ -12,6 +13,12 @@ token_ast! {
         [int] => { kind: TokenKind::Int(_), prompt: "integer literal" },
         [ident] => { kind: TokenKind::Identifier(_), prompt: "identifier" },
         [chr] => { kind: TokenKind::Char(_), prompt: "character literal" },
+
+        [mac] => { kind: TokenKind::Macro, prompt: "macro" },
+        [endmac] => { kind: TokenKind::EndMacro, prompt: "endmacro" },
+        [maccall] => { kind: TokenKind::MacroCall(_), prompt: "macro call" },
+        [macexpr] => { kind: TokenKind::MacroExpression(_), prompt: "macro expression" },
+
         [eof] => { kind: TokenKind::Eof, prompt: "end of file" },
     }
 }
@@ -21,7 +28,8 @@ token_ast! {
 pub enum Statement {
     AstStmt(AstStmt),
     Label(Token![label]),
-    Eof(Token![eof]),
+    MacroCall(MacroCall),
+    MacroDefinition(MacroDefinition),
     Newline(Token![nl]),
 }
 
@@ -41,4 +49,24 @@ pub enum AstStmtOperand {
     Int(Token![int]),
     Identifier(Token![ident]),
     Char(Token![chr]),
+    MacroExpression(Token![macexpr]),
+}
+
+#[derive(Parse, Debug, Clone)]
+#[token(Token)]
+pub struct MacroCall {
+    pub name: Token![maccall],
+    pub args: Vec<AstStmtOperand>,
+    _nl: Token![nl],
+}
+
+#[derive(Parse, Debug, Clone)]
+#[token(Token)]
+pub struct MacroDefinition {
+    pub mac: Token![mac],
+    pub args: Vec<Token![ident]>,
+    _nl2: Token![nl],
+    pub body: Vec<Statement>,
+    _end: Token![endmac],
+    _nl: Token![nl],
 }

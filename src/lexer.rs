@@ -22,6 +22,16 @@ pub enum TokenKind {
     Int(i16),
     #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*")]
     Identifier(String),
+
+    #[regex(r"%macro")]
+    Macro,
+    #[regex(r"%endmacro")]
+    EndMacro,
+    #[regex(r"%[a-zA-Z_][a-zA-Z0-9_]*")]
+    MacroCall(MacroCall),
+    #[regex(r"\$[a-zA-Z_][a-zA-Z0-9_]*")]
+    MacroExpression(MacroExpression),
+
     #[regex(r"'.'")]
     Char(Char),
 
@@ -30,6 +40,48 @@ pub enum TokenKind {
 }
 
 pub type Token = laps::token::Token<TokenKind>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MacroCall {
+    pub name: String,
+}
+
+impl FromStr for MacroCall {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(MacroCall {
+            name: s[1..].to_string(),
+        })
+    }
+}
+
+impl fmt::Display for MacroCall {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MacroExpression {
+    pub name: String,
+}
+
+impl FromStr for MacroExpression {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(MacroExpression {
+            name: s[1..].to_string(),
+        })
+    }
+}
+
+impl fmt::Display for MacroExpression {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Register {

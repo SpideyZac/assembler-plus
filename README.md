@@ -2,7 +2,7 @@
 An offset of the [Batpu2 assembler](https://github.com/mattbatwings/newcpu/blob/main/assembler.py) written in Rust with a multitude of useful additions/features.
 
 ## Features
-### Macros 🔴
+### Macros 🟡
 Define reusable code blocks that can be inserted into your code with arguments
 
 ```asm

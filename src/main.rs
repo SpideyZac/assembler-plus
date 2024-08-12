@@ -28,11 +28,11 @@ fn main() -> Result<()> {
     let mut statements = Vec::new();
 
     loop {
+        if tokens.peek().unwrap().kind == TokenKind::Eof {
+            break;
+        }
         if let Ok(stmt) = tokens.parse::<Statement>() {
-            match stmt {
-                Statement::Eof(_) => break,
-                _ => statements.push(stmt),
-            }
+            statements.push(stmt);
         } else {
             span.log_summary();
             exit(span.error_num() as i32);
