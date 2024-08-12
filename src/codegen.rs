@@ -453,6 +453,13 @@ impl Codegen {
                             value.unwrap().clone()
                         }
                     };
+                    if macro_def.contains_key(arg) {
+                        eval_err!(
+                            macrocall.name.0.span.clone(),
+                            "redefinition of argument '{}'",
+                            arg
+                        );
+                    }
                     macro_def.insert(arg.clone(), value);
                 }
                 self.current_macros.push(name.clone());
