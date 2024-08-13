@@ -68,7 +68,7 @@ impl Codegen {
         res.symbol_table
             .insert("carry".to_string(), StmtValue::Int(2));
         res.symbol_table
-            .insert("no_carry".to_string(), StmtValue::Int(3));
+            .insert("notcarry".to_string(), StmtValue::Int(3));
 
         let ports = [
             "pixel_x",
