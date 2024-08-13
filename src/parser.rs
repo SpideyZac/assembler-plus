@@ -10,6 +10,7 @@ token_ast! {
         [mnemonic] => { kind: TokenKind::Mnemonic(_), prompt: "mnemonic" },
         [register] => { kind: TokenKind::Register(_), prompt: "register" },
         [label] => { kind: TokenKind::Label(_), prompt: "label" },
+        [labelref] => { kind: TokenKind::LabelReference(_), prompt: "label reference" },
         [int] => { kind: TokenKind::Int(_), prompt: "integer literal" },
         [ident] => { kind: TokenKind::Identifier(_), prompt: "identifier" },
         [chr] => { kind: TokenKind::Char(_), prompt: "character literal" },
@@ -30,6 +31,7 @@ pub enum Statement {
     Label(Token![label]),
     MacroCall(MacroCall),
     MacroDefinition(MacroDefinition),
+    #[allow(dead_code)]
     Newline(Token![nl]),
 }
 
@@ -38,14 +40,14 @@ pub enum Statement {
 pub struct AstStmt {
     pub mnemonic: Token![mnemonic],
     pub operands: Vec<AstStmtOperand>,
-    _nl: Token![nl],
+    _nl: Option<Token![nl]>,
 }
 
 #[derive(Parse, Debug, Clone, PartialEq)]
 #[token(Token)]
 pub enum AstStmtOperand {
     Register(Token![register]),
-    Label(Token![label]),
+    LabelReference(Token![labelref]),
     Int(Token![int]),
     Identifier(Token![ident]),
     Char(Token![chr]),
@@ -57,7 +59,7 @@ pub enum AstStmtOperand {
 pub struct MacroCall {
     pub name: Token![maccall],
     pub args: Vec<AstStmtOperand>,
-    _nl: Token![nl],
+    _nl: Option<Token![nl]>,
 }
 
 #[derive(Parse, Debug, Clone)]
@@ -68,5 +70,5 @@ pub struct MacroDefinition {
     _nl2: Token![nl],
     pub body: Vec<Statement>,
     _end: Token![endmac],
-    _nl: Token![nl],
+    _nl: Option<Token![nl]>,
 }

@@ -256,7 +256,7 @@ impl Codegen {
                         );
                     }
                 }
-                AstStmtOperand::Label(l) => {
+                AstStmtOperand::LabelReference(l) => {
                     if !expected.contains(&"int") {
                         eval_err!(
                             l.0.span.clone(),
@@ -373,7 +373,7 @@ impl Codegen {
                     TokenKind::Register(reg) => StmtValue::Int(reg.number as i64),
                     _ => panic!("unreachable"),
                 },
-                AstStmtOperand::Label(l) => match l.0.kind {
+                AstStmtOperand::LabelReference(l) => match l.0.kind {
                     TokenKind::Label(label) => {
                         let mut name = label.name.clone();
                         if self.current_macros.len() > 0 {
@@ -723,8 +723,8 @@ impl Codegen {
                 TokenKind::Register(reg) => Ok(reg.number as i64),
                 _ => panic!("unreachable"),
             },
-            AstStmtOperand::Label(l) => match l.0.kind {
-                TokenKind::Label(label) => {
+            AstStmtOperand::LabelReference(l) => match l.0.kind {
+                TokenKind::LabelReference(label) => {
                     let mut name = label.name.clone();
                     if self.current_macros.len() > 0 {
                         name.push_str(&format!("_{}", self.macro_uuid));

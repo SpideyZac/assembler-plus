@@ -16,8 +16,10 @@ pub enum TokenKind {
     Mnemonic(Mnemonic),
     #[regex(r"r\d+")]
     Register(Register),
-    #[regex(r"\.[a-zA-Z_][a-zA-Z0-9_]*")]
+    #[regex(r"\.[a-zA-Z0-9_]*|[a-zA-Z_][a-zA-Z0-9_]*:")]
     Label(Label),
+    #[regex(r"\.[a-zA-Z0-9_]*|[a-zA-Z_][a-zA-Z0-9_]*")]
+    LabelReference(LabelReference),
     #[regex(r"-?[0-9]|-?[1-9][0-9]+", signed_int_literal)]
     Int(i16),
     #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*")]
@@ -116,13 +118,41 @@ impl FromStr for Label {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Label {
-            name: s[1..].to_string(),
-        })
+
+        if s.chars().nth(0).unwrap() == '.' {
+            Ok(Label {
+                name: s[1..].to_string(),
+            })
+        } else {
+            Ok(Label {
+                name: s[..s.len() - 1].to_string(),
+            })
+        }
     }
 }
 
 impl fmt::Display for Label {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct LabelReference {
+    pub name: String,
+}
+
+impl FromStr for LabelReference {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(LabelReference {
+            name: s.to_string(),
+        })
+    }
+}
+
+impl fmt::Display for LabelReference {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.name)
     }
