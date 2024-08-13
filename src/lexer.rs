@@ -7,7 +7,7 @@ use laps::prelude::*;
 #[token_kind]
 #[derive(Debug, Tokenize)]
 pub enum TokenKind {
-    #[skip(r"[ \t\r]+|;.*")] // We will track newlines separately
+    #[skip(r"[ \t\r]+|;.*|#.*|/.*")] // We will track newlines separately
     _Skip,
     #[regex(r"\n")]
     Newline,
@@ -16,9 +16,9 @@ pub enum TokenKind {
     Mnemonic(Mnemonic),
     #[regex(r"r\d+")]
     Register(Register),
-    #[regex(r"\.[a-zA-Z_][a-zA-Z0-9_]*")]
+    #[regex(r"\.[a-zA-Z0-9_]+")]
     Label(Label),
-    #[regex(r"-?[0-9]|-?[1-9][0-9]+", signed_int_literal)]
+    #[regex(r"-?[0-9]|-?[1-9][0-9]+|0b[01]+", signed_int_literal)]
     Int(i16),
     #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*")]
     Identifier(String),
@@ -231,7 +231,7 @@ impl FromStr for Char {
             ' ', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p',
             'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '.', '!', '?',
         ];
-        let value = s.chars().nth(1).unwrap();
+        let value = s.to_lowercase().chars().nth(1).unwrap();
         if !all_chars.contains(&value) {
             return Err(());
         }

@@ -633,28 +633,54 @@ impl Codegen {
                     machine_code = 13 << 12;
                 }
                 Mnemonic::Lod => {
-                    self.check_stmt_operands(
-                        span.clone(),
-                        &operands,
-                        vec![vec!["register"], vec!["register"], vec!["int"]],
-                    )?;
+                    if operands.len() == 2 {
+                        self.check_stmt_operands(
+                            span.clone(),
+                            &operands,
+                            vec![vec!["register"], vec!["register"]],
+                        )?;
+                    } else {
+                        self.check_stmt_operands(
+                            span.clone(),
+                            &operands,
+                            vec![vec!["register"], vec!["register"], vec!["int"]],
+                        )?;
+                    }
                     let rd = self.generate_stmt_operand(operands[0].clone())?;
                     let rs = self.generate_stmt_operand(operands[1].clone())?;
-                    let offset = self.generate_stmt_operand(operands[2].clone())?;
+                    let offset;
+                    if operands.len() == 3 {
+                        offset = self.generate_stmt_operand(operands[2].clone())?;
+                    } else {
+                        offset = 0;
+                    }
                     if offset < -8 || offset > 7 {
                         eval_err!(span.clone(), "offset value {} out of range [-8, 7]", offset);
                     }
                     machine_code = 14 << 12 | (rd << 8) | (rs << 4) | offset;
                 }
                 Mnemonic::Str => {
-                    self.check_stmt_operands(
-                        span.clone(),
-                        &operands,
-                        vec![vec!["register"], vec!["register"], vec!["int"]],
-                    )?;
+                    if operands.len() == 2 {
+                        self.check_stmt_operands(
+                            span.clone(),
+                            &operands,
+                            vec![vec!["register"], vec!["register"]],
+                        )?;
+                    } else {
+                        self.check_stmt_operands(
+                            span.clone(),
+                            &operands,
+                            vec![vec!["register"], vec!["register"], vec!["int"]],
+                        )?;
+                    }
                     let rd = self.generate_stmt_operand(operands[0].clone())?;
                     let rs = self.generate_stmt_operand(operands[1].clone())?;
-                    let offset = self.generate_stmt_operand(operands[2].clone())?;
+                    let offset;
+                    if operands.len() == 3 {
+                        offset = self.generate_stmt_operand(operands[2].clone())?;
+                    } else {
+                        offset = 0;
+                    }
                     if offset < -8 || offset > 7 {
                         eval_err!(span.clone(), "offset value {} out of range [-8, 7]", offset);
                     }
