@@ -187,7 +187,7 @@ impl Codegen {
             _ => panic!("unreachable"),
         };
         if let Some(uuid) = self.macro_uuid {
-            name.push_str(&format!("_{}", uuid));
+            name.push_str(&format!("_[{}", uuid));
         }
         if self.labels_table.contains_key(&name) {
             eval_err!(label.0.span.clone(), "redefinition of label '{}'", name);
@@ -376,7 +376,7 @@ impl Codegen {
                     TokenKind::Label(label) => {
                         let mut name = label.name.clone();
                         if let Some(uuid) = self.macro_uuid {
-                            name.push_str(&format!("_{}", uuid));
+                            name.push_str(&format!("_[{}", uuid));
                         }
                         let mut value = self.labels_table.get(&name);
                         if value.is_none() {
@@ -750,7 +750,7 @@ impl Codegen {
                 TokenKind::Label(label) => {
                     let mut name = label.name.clone();
                     if let Some(uuid) = self.macro_uuid {
-                        name.push_str(&format!("_{}", uuid));
+                        name.push_str(&format!("_[{}", uuid));
                     }
                     let mut value = self.labels_table.get(&name);
                     if value.is_none() {
