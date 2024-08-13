@@ -11,15 +11,19 @@ use crate::parser::Statement;
 use laps::input::InputStream;
 use laps::lexer::Tokenize;
 use laps::reader::Reader;
-use laps::span::Result;
+use laps::span::{Result, Span};
 use laps::token::{TokenBuffer, TokenStream};
 
-fn main() -> Result<()> {
-    let mut args = env::args();
-    args.next(); // Skip the program name
-    let fp = args.next().expect("expected file path");
-    let op = args.next().expect("expected output path");
+fn generate_file(fp: String) -> (Vec<Statement>, Span) {
+    let contents = std::fs::read_to_string(&fp).expect("failed to read file");
+    let contents = if contents.ends_with('\n') {
+        contents
+    } else {
+        format!("{}\n", contents)
+    };
+    std::fs::write(fp.clone(), contents).expect("failed to write temp file");
     let reader = Reader::from_path(fp).expect("failed to open file");
+
     let span = reader.span().clone();
     let lexer = TokenKind::lexer(reader);
 
@@ -33,12 +37,31 @@ fn main() -> Result<()> {
             break;
         }
         if let Ok(stmt) = tokens.parse::<Statement>() {
-            statements.push(stmt);
+            match stmt {
+                Statement::IncludeMacro(incl) => match incl.path.0.kind {
+                    TokenKind::RawString(path) => {
+                        let (stmts, _) = generate_file(path.value);
+                        statements.extend(stmts);
+                    }
+                    _ => panic!("unreachable"),
+                },
+                _ => statements.push(stmt),
+            }
         } else {
             span.log_summary();
             exit(span.error_num() as i32);
         }
     }
+
+    (statements, span)
+}
+
+fn main() -> Result<()> {
+    let mut args = env::args();
+    args.next(); // Skip the program name
+    let fp = args.next().expect("expected file path");
+    let op = args.next().expect("expected output path");
+    let (statements, span) = generate_file(fp);
 
     let mut codegen = codegen::Codegen::new(statements);
     if let Ok(output) = codegen.generate() {

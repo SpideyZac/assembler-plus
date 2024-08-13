@@ -13,9 +13,11 @@ token_ast! {
         [int] => { kind: TokenKind::Int(_), prompt: "integer literal" },
         [ident] => { kind: TokenKind::Identifier(_), prompt: "identifier" },
         [chr] => { kind: TokenKind::Char(_), prompt: "character literal" },
+        [rawstr] => { kind: TokenKind::RawString(_), prompt: "string literal" },
 
         [mac] => { kind: TokenKind::Macro, prompt: "macro" },
         [endmac] => { kind: TokenKind::EndMacro, prompt: "endmacro" },
+        [includemac] => { kind: TokenKind::IncludeMacro, prompt: "include macro" },
         [maccall] => { kind: TokenKind::MacroCall(_), prompt: "macro call" },
         [macexpr] => { kind: TokenKind::MacroExpression(_), prompt: "macro expression" },
 
@@ -30,8 +32,17 @@ pub enum Statement {
     Label(Token![label]),
     MacroCall(MacroCall),
     MacroDefinition(MacroDefinition),
+    IncludeMacro(IncludeMacro),
     #[allow(dead_code)]
     Newline(Token![nl]),
+}
+
+#[derive(Parse, Debug, Clone)]
+#[token(Token)]
+pub struct IncludeMacro {
+    pub includemac: Token![includemac],
+    pub path: Token![rawstr],
+    _nl: Token![nl],
 }
 
 #[derive(Parse, Debug, Clone)]

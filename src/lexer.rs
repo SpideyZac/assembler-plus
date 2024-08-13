@@ -4,6 +4,47 @@ use std::str::FromStr;
 use laps::lexer::signed_int_literal;
 use laps::prelude::*;
 
+fn str_lit(s: &str) -> Option<RawString> {
+    let mut buf = String::new();
+    let mut escape = false;
+    let mut hex_num = 0;
+    let mut hex = 0;
+    for c in s[1..s.len() - 1].chars() {
+        if escape {
+            if hex_num > 0 && c.is_ascii_digit() {
+                hex = hex * 16 + c.to_digit(16)?;
+                hex_num -= 1;
+                if hex_num == 0 {
+                    buf.push(char::from_u32(hex)?);
+                    hex = 0;
+                    escape = false;
+                }
+            } else if c == 'u' {
+                hex_num = 4;
+            } else {
+                match c {
+                    '"' => buf.push('"'),
+                    '\\' => buf.push('\\'),
+                    '/' => buf.push('/'),
+                    'b' => buf.push('\x08'),
+                    'f' => buf.push('\x0c'),
+                    'n' => buf.push('\n'),
+                    'r' => buf.push('\r'),
+                    't' => buf.push('\t'),
+                    _ => return None,
+                }
+                escape = false;
+            }
+        } else {
+            match c {
+                '\\' => escape = true,
+                c => buf.push(c),
+            }
+        }
+    }
+    Some(RawString { value: buf })
+}
+
 #[token_kind]
 #[derive(Debug, Tokenize)]
 pub enum TokenKind {
@@ -22,11 +63,15 @@ pub enum TokenKind {
     Int(i16),
     #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*")]
     Identifier(String),
+    #[regex(r#""([^\x00-\x1f"\\]|\\(["\\/bfnrt]|u[0-9a-fA-F]{4}))*""#, str_lit)]
+    RawString(RawString),
 
     #[regex(r"%macro")]
     Macro,
     #[regex(r"%endmacro")]
     EndMacro,
+    #[regex(r"%include")]
+    IncludeMacro,
     #[regex(r"%[a-zA-Z_][a-zA-Z0-9_]*")]
     MacroCall(MacroCall),
     #[regex(r"\$[a-zA-Z_][a-zA-Z0-9_]*")]
@@ -40,6 +85,27 @@ pub enum TokenKind {
 }
 
 pub type Token = laps::token::Token<TokenKind>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct RawString {
+    pub value: String,
+}
+
+impl FromStr for RawString {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(RawString {
+            value: s[1..s.len() - 1].to_string(),
+        })
+    }
+}
+
+impl fmt::Display for RawString {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "\"{}\"", self.value)
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MacroCall {

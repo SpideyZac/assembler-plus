@@ -215,7 +215,7 @@ impl Codegen {
                 }
             }
             StmtValue::Char(_) => {
-                if !correct.contains(&"char") {
+                if !correct.contains(&"char") && !correct.contains(&"int") {
                     eval_err!(
                         span,
                         "{}",
@@ -295,6 +295,8 @@ impl Codegen {
                     }
                 }
                 AstStmtOperand::Char(c) => {
+                    println!("abc");
+                    println!("{:#?}", expected.clone());
                     if !expected.contains(&"int") {
                         eval_err!(
                             c.0.span.clone(),
@@ -480,6 +482,7 @@ impl Codegen {
                 }
                 Ok(String::new())
             }
+            Statement::IncludeMacro(_) => Ok(String::new()), // handle include macros before generating code
             Statement::MacroDefinition(_) => Ok(String::new()), // handle macro definitions before generating code
             Statement::Newline(_) => Ok(String::new()),
         }
