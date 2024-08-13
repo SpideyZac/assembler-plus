@@ -39,7 +39,7 @@ pub enum Statement {
 #[derive(Parse, Debug, Clone)]
 #[token(Token)]
 pub struct IncludeMacro {
-    pub includemac: Token![includemac],
+    _includemac: Token![includemac],
     pub path: Token![rawstr],
     _nl: Token![nl],
 }

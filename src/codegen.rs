@@ -88,7 +88,7 @@ impl Codegen {
         ];
         for (i, port) in ports.iter().enumerate() {
             res.symbol_table
-                .insert(port.to_string(), StmtValue::Int(i as i64));
+                .insert(port.to_string(), StmtValue::Int(i as i64 + 240));
         }
 
         res
@@ -167,10 +167,10 @@ impl Codegen {
                         },
                         _ => panic!("unreachable"),
                     };
-                    if self.symbol_table.contains_key(&ident.to_string()) {
+                    if self.symbol_table.contains_key(&ident.to_lowercase()) {
                         eval_err!(ast.mnemonic.0.span.clone(), "redefinition of '{}'", ident);
                     }
-                    self.symbol_table.insert(ident, value);
+                    self.symbol_table.insert(ident.to_lowercase(), value);
                 }
                 _ => {
                     self.instruction_pointer += 1;
@@ -274,7 +274,7 @@ impl Codegen {
                 AstStmtOperand::Identifier(ident) => {
                     if !expected.contains(&"identifier") {
                         if let TokenKind::Identifier(i) = &ident.0.kind {
-                            let value = self.symbol_table.get(&i.to_string());
+                            let value = self.symbol_table.get(&i.to_lowercase());
                             if value.is_none() {
                                 eval_err!(
                                     ident.0.span.clone(),
@@ -293,8 +293,6 @@ impl Codegen {
                     }
                 }
                 AstStmtOperand::Char(c) => {
-                    println!("abc");
-                    println!("{:#?}", expected.clone());
                     if !expected.contains(&"int") {
                         eval_err!(
                             c.0.span.clone(),
@@ -391,7 +389,7 @@ impl Codegen {
                 },
                 AstStmtOperand::Identifier(ident) => match ident.0.kind {
                     TokenKind::Identifier(i) => {
-                        let value = self.symbol_table.get(&i.to_string());
+                        let value = self.symbol_table.get(&i.to_lowercase());
                         if value.is_none() {
                             eval_err!(ident.0.span.clone(), "undefined identifier '{}'", i);
                         }
@@ -508,9 +506,9 @@ impl Codegen {
                         &operands,
                         vec![vec!["register"], vec!["register"], vec!["register"]],
                     )?;
-                    let rd = self.generate_stmt_operand(operands[0].clone())?;
-                    let rs = self.generate_stmt_operand(operands[1].clone())?;
-                    let rt = self.generate_stmt_operand(operands[2].clone())?;
+                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
+                    let rs = self.generate_stmt_operand(operands[1].clone(), 4)?;
+                    let rt = self.generate_stmt_operand(operands[2].clone(), 4)?;
                     machine_code = 2 << 12 | (rd << 8) | (rs << 4) | rt;
                 }
                 Mnemonic::Sub => {
@@ -519,9 +517,9 @@ impl Codegen {
                         &operands,
                         vec![vec!["register"], vec!["register"], vec!["register"]],
                     )?;
-                    let rd = self.generate_stmt_operand(operands[0].clone())?;
-                    let rs = self.generate_stmt_operand(operands[1].clone())?;
-                    let rt = self.generate_stmt_operand(operands[2].clone())?;
+                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
+                    let rs = self.generate_stmt_operand(operands[1].clone(), 4)?;
+                    let rt = self.generate_stmt_operand(operands[2].clone(), 4)?;
                     machine_code = 3 << 12 | (rd << 8) | (rs << 4) | rt;
                 }
                 Mnemonic::Nor => {
@@ -530,9 +528,9 @@ impl Codegen {
                         &operands,
                         vec![vec!["register"], vec!["register"], vec!["register"]],
                     )?;
-                    let rd = self.generate_stmt_operand(operands[0].clone())?;
-                    let rs = self.generate_stmt_operand(operands[1].clone())?;
-                    let rt = self.generate_stmt_operand(operands[2].clone())?;
+                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
+                    let rs = self.generate_stmt_operand(operands[1].clone(), 4)?;
+                    let rt = self.generate_stmt_operand(operands[2].clone(), 4)?;
                     machine_code = 4 << 12 | (rd << 8) | (rs << 4) | rt;
                 }
                 Mnemonic::And => {
@@ -541,9 +539,9 @@ impl Codegen {
                         &operands,
                         vec![vec!["register"], vec!["register"], vec!["register"]],
                     )?;
-                    let rd = self.generate_stmt_operand(operands[0].clone())?;
-                    let rs = self.generate_stmt_operand(operands[1].clone())?;
-                    let rt = self.generate_stmt_operand(operands[2].clone())?;
+                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
+                    let rs = self.generate_stmt_operand(operands[1].clone(), 4)?;
+                    let rt = self.generate_stmt_operand(operands[2].clone(), 4)?;
                     machine_code = 5 << 12 | (rd << 8) | (rs << 4) | rt;
                 }
                 Mnemonic::Xor => {
@@ -552,9 +550,9 @@ impl Codegen {
                         &operands,
                         vec![vec!["register"], vec!["register"], vec!["register"]],
                     )?;
-                    let rd = self.generate_stmt_operand(operands[0].clone())?;
-                    let rs = self.generate_stmt_operand(operands[1].clone())?;
-                    let rt = self.generate_stmt_operand(operands[2].clone())?;
+                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
+                    let rs = self.generate_stmt_operand(operands[1].clone(), 4)?;
+                    let rt = self.generate_stmt_operand(operands[2].clone(), 4)?;
                     machine_code = 6 << 12 | (rd << 8) | (rs << 4) | rt;
                 }
                 Mnemonic::Rsh => {
@@ -563,8 +561,8 @@ impl Codegen {
                         &operands,
                         vec![vec!["register"], vec!["register"]],
                     )?;
-                    let rd = self.generate_stmt_operand(operands[0].clone())?;
-                    let rs = self.generate_stmt_operand(operands[1].clone())?;
+                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
+                    let rs = self.generate_stmt_operand(operands[1].clone(), 4)?;
                     machine_code = 7 << 12 | (rd << 8) | rs;
                 }
                 Mnemonic::Ldi => {
@@ -573,8 +571,8 @@ impl Codegen {
                         &operands,
                         vec![vec!["register"], vec!["int"]],
                     )?;
-                    let rd = self.generate_stmt_operand(operands[0].clone())?;
-                    let imm = self.generate_stmt_operand(operands[1].clone())?;
+                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
+                    let imm = self.generate_stmt_operand(operands[1].clone(), 8)?;
                     if !(-128..=255).contains(&imm) {
                         eval_err!(
                             span.clone(),
@@ -590,8 +588,8 @@ impl Codegen {
                         &operands,
                         vec![vec!["register"], vec!["int"]],
                     )?;
-                    let rd = self.generate_stmt_operand(operands[0].clone())?;
-                    let imm = self.generate_stmt_operand(operands[1].clone())?;
+                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
+                    let imm = self.generate_stmt_operand(operands[1].clone(), 8)?;
                     if !(-128..=255).contains(&imm) {
                         eval_err!(
                             span.clone(),
@@ -603,7 +601,7 @@ impl Codegen {
                 }
                 Mnemonic::Jmp => {
                     self.check_stmt_operands(span.clone(), &operands, vec![vec!["int"]])?;
-                    let addr = self.generate_stmt_operand(operands[0].clone())?;
+                    let addr = self.generate_stmt_operand(operands[0].clone(), 10)?;
                     if addr != (addr % 1024) {
                         eval_err!(span.clone(), "jump address {} out of range [0, 1023]", addr);
                     }
@@ -615,16 +613,16 @@ impl Codegen {
                         &operands,
                         vec![vec!["int"], vec!["int"]],
                     )?;
-                    let cond = self.generate_stmt_operand(operands[0].clone())?;
-                    let addr = self.generate_stmt_operand(operands[1].clone())?;
+                    let cond = self.generate_stmt_operand(operands[0].clone(), 2)?;
+                    let addr = self.generate_stmt_operand(operands[1].clone(), 10)?;
                     if addr != (addr % 1024) {
                         eval_err!(span.clone(), "jump address {} out of range [0, 1023]", addr);
                     }
-                    machine_code = 11 << 12 | (cond << 8) | addr;
+                    machine_code = 11 << 12 | (cond << 10) | addr;
                 }
                 Mnemonic::Cal => {
                     self.check_stmt_operands(span.clone(), &operands, vec![vec!["int"]])?;
-                    let addr = self.generate_stmt_operand(operands[0].clone())?;
+                    let addr = self.generate_stmt_operand(operands[0].clone(), 10)?;
                     machine_code = 12 << 12 | addr;
                 }
                 Mnemonic::Ret => {
@@ -645,10 +643,10 @@ impl Codegen {
                             vec![vec!["register"], vec!["register"], vec!["int"]],
                         )?;
                     }
-                    let rd = self.generate_stmt_operand(operands[0].clone())?;
-                    let rs = self.generate_stmt_operand(operands[1].clone())?;
+                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
+                    let rs = self.generate_stmt_operand(operands[1].clone(), 4)?;
                     let offset = if operands.len() == 3 {
-                        self.generate_stmt_operand(operands[2].clone())?
+                        self.generate_stmt_operand(operands[2].clone(), 4)?
                     } else {
                         0
                     };
@@ -671,10 +669,10 @@ impl Codegen {
                             vec![vec!["register"], vec!["register"], vec!["int"]],
                         )?;
                     }
-                    let rd = self.generate_stmt_operand(operands[0].clone())?;
-                    let rs = self.generate_stmt_operand(operands[1].clone())?;
+                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
+                    let rs = self.generate_stmt_operand(operands[1].clone(), 4)?;
                     let offset = if operands.len() == 3 {
-                        self.generate_stmt_operand(operands[2].clone())?
+                        self.generate_stmt_operand(operands[2].clone(), 4)?
                     } else {
                         0
                     };
@@ -689,8 +687,8 @@ impl Codegen {
                         &operands,
                         vec![vec!["register"], vec!["register"]],
                     )?;
-                    let rs = self.generate_stmt_operand(operands[0].clone())?;
-                    let rt = self.generate_stmt_operand(operands[1].clone())?;
+                    let rs = self.generate_stmt_operand(operands[0].clone(), 4)?;
+                    let rt = self.generate_stmt_operand(operands[1].clone(), 4)?;
                     machine_code = 3 << 12 | (rs << 8) | (rt << 4);
                 }
                 Mnemonic::Mov => {
@@ -699,8 +697,8 @@ impl Codegen {
                         &operands,
                         vec![vec!["register"], vec!["register"]],
                     )?;
-                    let rd = self.generate_stmt_operand(operands[0].clone())?;
-                    let rs = self.generate_stmt_operand(operands[1].clone())?;
+                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
+                    let rs = self.generate_stmt_operand(operands[1].clone(), 4)?;
                     machine_code = 2 << 12 | (rd << 8) | rs;
                 }
                 Mnemonic::Lsh => {
@@ -709,19 +707,19 @@ impl Codegen {
                         &operands,
                         vec![vec!["register"], vec!["register"]],
                     )?;
-                    let rd = self.generate_stmt_operand(operands[0].clone())?;
-                    let rs = self.generate_stmt_operand(operands[1].clone())?;
+                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
+                    let rs = self.generate_stmt_operand(operands[1].clone(), 4)?;
                     machine_code = 2 << 12 | (rd << 8) | (rd << 4) | rs;
                 }
                 Mnemonic::Inc => {
                     self.check_stmt_operands(span.clone(), &operands, vec![vec!["register"]])?;
-                    let rd = self.generate_stmt_operand(operands[0].clone())?;
+                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
                     machine_code = 9 << 12 | (rd << 8) | 1;
                 }
                 Mnemonic::Dec => {
                     self.check_stmt_operands(span.clone(), &operands, vec![vec!["register"]])?;
-                    let rd = self.generate_stmt_operand(operands[0].clone())?;
-                    machine_code = 9 << 12 | (rd << 8) | -1;
+                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
+                    machine_code = 9 << 12 | (rd << 8) | (-1 & 0xff);
                 }
                 Mnemonic::Not => {
                     self.check_stmt_operands(
@@ -729,8 +727,8 @@ impl Codegen {
                         &operands,
                         vec![vec!["register"], vec!["register"]],
                     )?;
-                    let rd = self.generate_stmt_operand(operands[0].clone())?;
-                    let rs = self.generate_stmt_operand(operands[1].clone())?;
+                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
+                    let rs = self.generate_stmt_operand(operands[1].clone(), 4)?;
                     machine_code = 4 << 12 | (rd << 8) | rs;
                 }
             },
@@ -740,10 +738,10 @@ impl Codegen {
         Ok(format!("{:016b}\n", machine_code))
     }
 
-    fn generate_stmt_operand(&mut self, operand: AstStmtOperand) -> Result<i64, Error> {
-        match operand {
+    fn generate_stmt_operand(&mut self, operand: AstStmtOperand, bits: u32) -> Result<i64, Error> {
+        Ok(match operand {
             AstStmtOperand::Register(r) => match r.0.kind {
-                TokenKind::Register(reg) => Ok(reg.number as i64),
+                TokenKind::Register(reg) => reg.number as i64,
                 _ => panic!("unreachable"),
             },
             AstStmtOperand::Label(l) => match l.0.kind {
@@ -759,17 +757,17 @@ impl Codegen {
                             eval_err!(l.0.span.clone(), "undefined label '{}'", label.name);
                         }
                     }
-                    Ok(*value.unwrap() as i64)
+                    *value.unwrap() as i64
                 }
                 _ => panic!("unreachable"),
             },
             AstStmtOperand::Int(i) => match i.0.kind {
-                TokenKind::Int(int) => Ok(int as i64),
+                TokenKind::Int(int) => int as i64,
                 _ => panic!("unreachable"),
             },
             AstStmtOperand::Identifier(ident) => match ident.0.kind {
                 TokenKind::Identifier(i) => {
-                    let value = self.symbol_table.get(&i.to_string());
+                    let value = self.symbol_table.get(&i.to_lowercase());
                     if value.is_none() {
                         eval_err!(ident.0.span.clone(), "undefined identifier '{}'", i);
                     }
@@ -779,14 +777,14 @@ impl Codegen {
                         vec!["int", "char"],
                     )?;
                     match value.unwrap() {
-                        StmtValue::Int(int) => Ok(*int),
-                        StmtValue::Char(c) => Ok(*c as i64),
+                        StmtValue::Int(int) => *int,
+                        StmtValue::Char(c) => *c as i64,
                     }
                 }
                 _ => panic!("unreachable"),
             },
             AstStmtOperand::Char(c) => match c.0.kind {
-                TokenKind::Char(char) => Ok(char.value as i64),
+                TokenKind::Char(char) => char.value as i64,
                 _ => panic!("unreachable"),
             },
             AstStmtOperand::MacroExpression(macroexpr) => {
@@ -804,8 +802,8 @@ impl Codegen {
                             vec!["int", "char"],
                         )?;
                         match value.unwrap() {
-                            StmtValue::Int(int) => return Ok(*int),
-                            StmtValue::Char(c) => return Ok(*c as i64),
+                            StmtValue::Int(int) => return Ok(*int & (2i64.pow(bits) - 1)),
+                            StmtValue::Char(c) => return Ok(*c as i64 & (2i64.pow(bits) - 1)),
                         }
                     }
                 }
@@ -815,6 +813,6 @@ impl Codegen {
                     name
                 );
             }
-        }
+        } & (2i64.pow(bits) - 1))
     }
 }
