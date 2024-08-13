@@ -53,7 +53,7 @@ pub enum TokenKind {
     #[regex(r"\n")]
     Newline,
 
-    #[regex(r"define|nop|hlt|add|sub|nor|and|xor|rsh|ldi|adi|jmp|brh|cal|ret|lod|str|cmp|mov|lsh|inc|dec|not")]
+    #[regex(r"(?i)define|nop|hlt|add|sub|nor|and|xor|rsh|ldi|adi|jmp|brh|cal|ret|lod|str|cmp|mov|lsh|inc|dec|not")]
     Mnemonic(Mnemonic),
     #[regex(r"r\d+")]
     Register(Register),
@@ -61,7 +61,7 @@ pub enum TokenKind {
     Label(Label),
     #[regex(r"-?[0-9]|-?[1-9][0-9]+|0b[01]+", signed_int_literal)]
     Int(i16),
-    #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*")]
+    #[regex(r"[a-zA-Z_~|][a-zA-Z0-9_~|]*")]
     Identifier(String),
     #[regex(r#""([^\x00-\x1f"\\]|\\(["\\/bfnrt]|u[0-9a-fA-F]{4}))*""#, str_lit)]
     RawString(RawString),
@@ -225,7 +225,7 @@ impl FromStr for Mnemonic {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
+        match s.to_lowercase().as_str() {
             "define" => Ok(Mnemonic::Define),
             "nop" => Ok(Mnemonic::Nop),
             "hlt" => Ok(Mnemonic::Hlt),
