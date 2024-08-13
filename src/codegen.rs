@@ -351,9 +351,17 @@ impl Codegen {
         for (k, _) in prelabels.iter() {
             let v = self.labels_table.get(k).unwrap();
             if *v >= self.instruction_pointer {
+                let mut len = 0;
+                for stmt in m.body.iter() {
+                    match stmt {
+                        Statement::AstStmt(_) => len += 1,
+                        Statement::MacroCall(_) => len += 1,
+                        _ => {}
+                    }
+                }
                 self.labels_table
                     .entry(k.clone())
-                    .and_modify(|e| *e += m.body.len() as u64);
+                    .and_modify(|e| *e += len as u64);
             }
         }
 
