@@ -30,6 +30,7 @@ pub enum Statement {
     Label(Token![label]),
     MacroCall(MacroCall),
     MacroDefinition(MacroDefinition),
+    #[allow(dead_code)]
     Newline(Token![nl]),
 }
 

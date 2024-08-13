@@ -120,7 +120,7 @@ impl Codegen {
                 Ok(())
             }
             Statement::MacroDefinition(def) => {
-                if def.args.len() < 1 {
+                if def.args.is_empty() {
                     eval_err!(
                         def.mac.0.span.clone(),
                         "macro must have at least one argument - the name of the macro"
@@ -148,8 +148,8 @@ impl Codegen {
     }
 
     fn generate_ast_preprocess(&mut self, ast: AstStmt) -> Result<(), Error> {
-        match ast.mnemonic.0.kind {
-            TokenKind::Mnemonic(mnemonic) => match mnemonic {
+        if let TokenKind::Mnemonic(mnemonic) = ast.mnemonic.0.kind {
+            match mnemonic {
                 Mnemonic::Define => {
                     let ident = match ast.operands[0].clone() {
                         AstStmtOperand::Identifier(ident) => match ident.0.kind {
@@ -177,8 +177,7 @@ impl Codegen {
                 _ => {
                     self.instruction_pointer += 1;
                 }
-            },
-            _ => (),
+            }
         }
 
         Ok(())
@@ -189,7 +188,7 @@ impl Codegen {
             TokenKind::Label(l) => l.name,
             _ => panic!("unreachable"),
         };
-        if self.current_macros.len() > 0 {
+        if !self.current_macros.is_empty() {
             name.push_str(&format!("_{}", self.macro_uuid));
         }
         if self.labels_table.contains_key(&name) {
@@ -232,7 +231,7 @@ impl Codegen {
     fn check_stmt_operands(
         &self,
         span: Span,
-        operands: &Vec<AstStmtOperand>,
+        operands: &[AstStmtOperand],
         correct: Vec<Vec<&str>>,
     ) -> Result<(), Error> {
         if operands.len() != correct.len() {
@@ -376,7 +375,7 @@ impl Codegen {
                 AstStmtOperand::Label(l) => match l.0.kind {
                     TokenKind::Label(label) => {
                         let mut name = label.name.clone();
-                        if self.current_macros.len() > 0 {
+                        if !self.current_macros.is_empty() {
                             name.push_str(&format!("_{}", self.macro_uuid));
                         }
                         let mut value = self.labels_table.get(&name);
@@ -475,7 +474,7 @@ impl Codegen {
                 Ok(res)
             }
             Statement::Label(lbl) => {
-                if self.current_macros.len() > 0 {
+                if !self.current_macros.is_empty() {
                     self.generate_label_preprocess(lbl)?;
                     self.macro_uuid += 1;
                 }
@@ -576,7 +575,7 @@ impl Codegen {
                     )?;
                     let rd = self.generate_stmt_operand(operands[0].clone())?;
                     let imm = self.generate_stmt_operand(operands[1].clone())?;
-                    if imm < -128 || imm > 255 {
+                    if !(-128..=255).contains(&imm) {
                         eval_err!(
                             span.clone(),
                             "immediate value {} out of range [-128, 255]",
@@ -593,7 +592,7 @@ impl Codegen {
                     )?;
                     let rd = self.generate_stmt_operand(operands[0].clone())?;
                     let imm = self.generate_stmt_operand(operands[1].clone())?;
-                    if imm < -128 || imm > 255 {
+                    if !(-128..=255).contains(&imm) {
                         eval_err!(
                             span.clone(),
                             "immediate value {} out of range [-128, 255]",
@@ -648,13 +647,12 @@ impl Codegen {
                     }
                     let rd = self.generate_stmt_operand(operands[0].clone())?;
                     let rs = self.generate_stmt_operand(operands[1].clone())?;
-                    let offset;
-                    if operands.len() == 3 {
-                        offset = self.generate_stmt_operand(operands[2].clone())?;
+                    let offset = if operands.len() == 3 {
+                        self.generate_stmt_operand(operands[2].clone())?
                     } else {
-                        offset = 0;
-                    }
-                    if offset < -8 || offset > 7 {
+                        0
+                    };
+                    if !(-8..=7).contains(&offset) {
                         eval_err!(span.clone(), "offset value {} out of range [-8, 7]", offset);
                     }
                     machine_code = 14 << 12 | (rd << 8) | (rs << 4) | offset;
@@ -675,13 +673,12 @@ impl Codegen {
                     }
                     let rd = self.generate_stmt_operand(operands[0].clone())?;
                     let rs = self.generate_stmt_operand(operands[1].clone())?;
-                    let offset;
-                    if operands.len() == 3 {
-                        offset = self.generate_stmt_operand(operands[2].clone())?;
+                    let offset = if operands.len() == 3 {
+                        self.generate_stmt_operand(operands[2].clone())?
                     } else {
-                        offset = 0;
-                    }
-                    if offset < -8 || offset > 7 {
+                        0
+                    };
+                    if !(-8..=7).contains(&offset) {
                         eval_err!(span.clone(), "offset value {} out of range [-8, 7]", offset);
                     }
                     machine_code = 15 << 12 | (rd << 8) | (rs << 4) | offset;
@@ -752,7 +749,7 @@ impl Codegen {
             AstStmtOperand::Label(l) => match l.0.kind {
                 TokenKind::Label(label) => {
                     let mut name = label.name.clone();
-                    if self.current_macros.len() > 0 {
+                    if !self.current_macros.is_empty() {
                         name.push_str(&format!("_{}", self.macro_uuid));
                     }
                     let mut value = self.labels_table.get(&name);
