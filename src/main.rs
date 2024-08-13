@@ -18,6 +18,7 @@ fn main() -> Result<()> {
     let mut args = env::args();
     args.next(); // Skip the program name
     let fp = args.next().expect("expected file path");
+    let op = args.next().expect("expected output path");
     let reader = Reader::from_path(fp).expect("failed to open file");
     let span = reader.span().clone();
     let lexer = TokenKind::lexer(reader);
@@ -41,7 +42,7 @@ fn main() -> Result<()> {
 
     let mut codegen = codegen::Codegen::new(statements);
     if let Ok(output) = codegen.generate() {
-        println!("{}", output);
+        std::fs::write(op, output).expect("failed to write output");
     } else {
         span.log_summary();
         exit(span.error_num() as i32);
