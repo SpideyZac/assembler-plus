@@ -64,11 +64,11 @@ impl Codegen {
         res.symbol_table
             .insert("zero".to_string(), StmtValue::Int(0));
         res.symbol_table
-            .insert("nonzero".to_string(), StmtValue::Int(1));
+            .insert("notzero".to_string(), StmtValue::Int(1));
         res.symbol_table
             .insert("carry".to_string(), StmtValue::Int(2));
         res.symbol_table
-            .insert("no_carry".to_string(), StmtValue::Int(3));
+            .insert("notcarry".to_string(), StmtValue::Int(3));
 
         let ports = [
             "pixel_x",
