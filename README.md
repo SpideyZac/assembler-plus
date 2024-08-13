@@ -45,13 +45,23 @@ str r1 r2 0
 ldi r3 $mem $reg r1
 ```
 
-## TODO
-* Add standard library
-* Register templating
-* Add warnings
-* Optimizer
+## Other Features
+* Add standard library 🟡
+* Register templating 🟢
+* Add warnings 🔴
+* Optimizer 🔴
 
 Please create an issue for any suggested features.
 
-## Gloabl TODO
-* Add more docs
+## Usage
+```bash
+assembler-plus [input file path] [output file path]
+```
+
+## Compiling
+```bash
+cargo build --release
+```
+
+## Download
+Soon!
