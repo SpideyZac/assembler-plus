@@ -77,7 +77,7 @@ pub enum TokenKind {
     #[regex(r"\$[a-zA-Z_][a-zA-Z0-9_]*")]
     MacroExpression(MacroExpression),
 
-    #[regex(r"'.'")]
+    #[regex(r#"'.'|".""#)]
     Char(Char),
 
     #[eof]

@@ -1,6 +1,5 @@
 use crate::lexer::{Token, TokenKind};
 
-use laps::parse::Parse;
 use laps::prelude::*;
 
 token_ast! {

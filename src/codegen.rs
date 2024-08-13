@@ -35,9 +35,8 @@ pub struct Codegen {
     labels_table: HashMap<String, u64>,
     instruction_pointer: u64,
     macros: HashMap<String, Macro>,
-    current_macros: Vec<String>,
     current_macro_defs: Vec<HashMap<String, StmtValue>>,
-    macro_uuid: u64,
+    macro_uuid: Option<u64>,
 }
 
 impl Codegen {
@@ -48,9 +47,8 @@ impl Codegen {
             labels_table: HashMap::new(),
             instruction_pointer: 0,
             macros: HashMap::new(),
-            current_macros: Vec::new(),
             current_macro_defs: Vec::new(),
-            macro_uuid: 0,
+            macro_uuid: None,
         };
 
         res.symbol_table.insert("eq".to_string(), StmtValue::Int(0));
@@ -188,8 +186,8 @@ impl Codegen {
             TokenKind::Label(l) => l.name,
             _ => panic!("unreachable"),
         };
-        if !self.current_macros.is_empty() {
-            name.push_str(&format!("_{}", self.macro_uuid));
+        if let Some(uuid) = self.macro_uuid {
+            name.push_str(&format!("_{}", uuid));
         }
         if self.labels_table.contains_key(&name) {
             eval_err!(label.0.span.clone(), "redefinition of label '{}'", name);
@@ -335,10 +333,10 @@ impl Codegen {
             _ => panic!("unreachable"),
         };
         let m = self.macros.get(&name);
-        if m.is_none() {
-            eval_err!(macrocall.name.0.span.clone(), "undefined macro '{}'", name);
-        }
-        let m = m.unwrap();
+        let m = match m {
+            Some(m) => m,
+            None => eval_err!(macrocall.name.0.span.clone(), "undefined macro '{}'", name),
+        };
         if m.args.len() != macrocall.args.len() {
             eval_err!(
                 macrocall.name.0.span.clone(),
@@ -377,8 +375,8 @@ impl Codegen {
                 AstStmtOperand::Label(l) => match l.0.kind {
                     TokenKind::Label(label) => {
                         let mut name = label.name.clone();
-                        if !self.current_macros.is_empty() {
-                            name.push_str(&format!("_{}", self.macro_uuid));
+                        if let Some(uuid) = self.macro_uuid {
+                            name.push_str(&format!("_{}", uuid));
                         }
                         let mut value = self.labels_table.get(&name);
                         if value.is_none() {
@@ -442,14 +440,14 @@ impl Codegen {
             }
             macro_def.insert(arg.clone(), value);
         }
-        self.current_macros.push(name.clone());
+        self.macro_uuid = Some(self.macro_uuid.map_or(0, |uuid| uuid + 1));
         self.current_macro_defs.push(macro_def);
         let mut output = String::new();
         for stmt in m.body.clone() {
             let out = self.generate_stmt(stmt)?;
             output.push_str(&out);
         }
-        self.current_macros.pop();
+        self.macro_uuid = self.macro_uuid.and_then(|uuid| uuid.checked_sub(1));
         self.current_macro_defs.pop();
         Ok(output)
     }
@@ -476,9 +474,8 @@ impl Codegen {
                 Ok(res)
             }
             Statement::Label(lbl) => {
-                if !self.current_macros.is_empty() {
+                if self.macro_uuid.is_some() {
                     self.generate_label_preprocess(lbl)?;
-                    self.macro_uuid += 1;
                 }
                 Ok(String::new())
             }
@@ -752,8 +749,8 @@ impl Codegen {
             AstStmtOperand::Label(l) => match l.0.kind {
                 TokenKind::Label(label) => {
                     let mut name = label.name.clone();
-                    if !self.current_macros.is_empty() {
-                        name.push_str(&format!("_{}", self.macro_uuid));
+                    if let Some(uuid) = self.macro_uuid {
+                        name.push_str(&format!("_{}", uuid));
                     }
                     let mut value = self.labels_table.get(&name);
                     if value.is_none() {
