@@ -18,7 +18,14 @@ fn main() -> Result<()> {
     let mut args = env::args();
     args.next(); // Skip the program name
     let fp = args.next().expect("expected file path");
-    let op = args.next().expect("expected output path");
+    let op = args.next();
+    let op = if op.is_some() {
+        op.unwrap()
+    } else {
+        let mut path = fp.clone();
+        path.push_str(".asp");
+        path
+    };
     let reader = Reader::from_path(fp).expect("failed to open file");
     let span = reader.span().clone();
     let lexer = TokenKind::lexer(reader);

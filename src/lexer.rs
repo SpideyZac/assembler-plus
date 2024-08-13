@@ -24,7 +24,7 @@ pub enum TokenKind {
     Int(i16),
     #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*")]
     Identifier(String),
-
+ 
     #[regex(r"%macro")]
     Macro,
     #[regex(r"%endmacro")]
