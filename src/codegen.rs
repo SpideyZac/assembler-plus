@@ -147,8 +147,6 @@ impl Codegen {
                             .entry(k.clone())
                             .and_modify(|e| *e += offset);
                     }
-                    let v = self.labels_table.get(k).unwrap();
-                    println!("{}: {} {}", k, v, self.instruction_pointer);
                 }
                 Ok(())
             }
@@ -222,7 +220,7 @@ impl Codegen {
             _ => panic!("unreachable"),
         };
         if self.uuid_stack.is_empty() {
-            name.insert(0, '_');
+            name.insert_str(0, "__");
         } else {
             name.insert_str(0, &format!("_{}_", self.uuid_stack.last().unwrap()));
         }
@@ -401,7 +399,7 @@ impl Codegen {
                     TokenKind::Label(label) => {
                         let mut name = label.name.clone();
                         if self.uuid_stack.is_empty() {
-                            name.insert(0, '_');
+                            name.insert_str(0, "__");
                         } else {
                             name.insert_str(0, &format!("_{}_", self.uuid_stack.last().unwrap()));
                         }
@@ -744,7 +742,7 @@ impl Codegen {
                 Mnemonic::Dec => {
                     self.check_stmt_operands(span.clone(), &operands, vec![vec!["register"]])?;
                     let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
-                    machine_code = 9 << 12 | (rd << 8) | (-1 & 0xff);
+                    machine_code = 9 << 12 | (rd << 8) | 0xff;
                 }
                 Mnemonic::Not => {
                     self.check_stmt_operands(
@@ -773,7 +771,7 @@ impl Codegen {
                 TokenKind::Label(label) => {
                     let mut name = label.name.clone();
                     if self.uuid_stack.is_empty() {
-                        name.insert(0, '_');
+                        name.insert_str(0, "__");
                     } else {
                         name.insert_str(0, &format!("_{}_", self.uuid_stack.last().unwrap()));
                     }
