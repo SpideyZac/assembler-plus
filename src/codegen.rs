@@ -468,6 +468,24 @@ impl Codegen {
                 }
                 Ok(String::new())
             }
+            Statement::IfDefMacro(ifdef) => {
+                if self.symbol_table.contains_key(
+                    &match &ifdef.identifier.0.kind {
+                        TokenKind::Identifier(ident) => ident,
+                        _ => unreachable!(),
+                    }
+                    .to_lowercase(),
+                ) {
+                    let mut output = String::new();
+                    for stmt in &ifdef.stmts {
+                        let out = self.generate_stmt(stmt)?;
+                        output += &out;
+                    }
+                    Ok(output)
+                } else {
+                    Ok(String::new())
+                }
+            }
             Statement::IncludeMacro(_) => Ok(String::new()), // handle include macros before generating code
             Statement::MacroDefinition(_) => Ok(String::new()), // handle macro definitions before generating code
             Statement::Newline(_) => Ok(String::new()),

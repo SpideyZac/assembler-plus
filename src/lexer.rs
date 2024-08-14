@@ -72,6 +72,10 @@ pub enum TokenKind {
     EndMacro,
     #[regex(r"%include")]
     IncludeMacro,
+    #[regex(r"%ifdef")]
+    IfDefMacro,
+    #[regex(r"%endif")]
+    EndIfMacro,
     #[regex(r"%[a-zA-Z_][a-zA-Z0-9_]*")]
     MacroCall(MacroCall),
     #[regex(r"\$[a-zA-Z_][a-zA-Z0-9_]*")]
