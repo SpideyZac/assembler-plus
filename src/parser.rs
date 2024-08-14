@@ -5,7 +5,7 @@ use laps::prelude::*;
 token_ast! {
     #[derive(Debug, PartialEq, Clone)]
     pub macro Token<TokenKind> {
-        [nl] => { kind: TokenKind::Newline, prompt: "new line" },
+        [nl] => { kind: TokenKind::Newline | TokenKind::Eof, prompt: "new line" },
         [mnemonic] => { kind: TokenKind::Mnemonic(_), prompt: "mnemonic" },
         [register] => { kind: TokenKind::Register(_), prompt: "register" },
         [label] => { kind: TokenKind::Label(_), prompt: "label" },
