@@ -21,7 +21,11 @@ Conditional ASM allows you to include or exclude certain code blocks if a user d
 ```asm
 define DEBUG 1
 
-%ifdef DEBUG == 1
+%if DEBUG == 1
+hlt
+%endif
+
+%ifdef DEBUG
 hlt
 %endif
 ```

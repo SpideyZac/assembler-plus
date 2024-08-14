@@ -72,6 +72,10 @@ pub enum TokenKind {
     EndMacro,
     #[regex(r"%include")]
     IncludeMacro,
+    #[regex(r"%ifdef")]
+    IfDefMacro,
+    #[regex(r"%endif")]
+    EndIfMacro,
     #[regex(r"%[a-zA-Z_][a-zA-Z0-9_]*")]
     MacroCall(MacroCall),
     #[regex(r"\$[a-zA-Z_][a-zA-Z0-9_]*")]
@@ -298,10 +302,7 @@ impl FromStr for Char {
             'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '.', '!', '?',
         ];
         let value = s.to_lowercase().chars().nth(1).unwrap();
-        if !all_chars.contains(&value) {
-            return Err(());
-        }
-        let index = all_chars.iter().position(|&c| c == value).unwrap();
+        let index = all_chars.iter().position(|&c| c == value).ok_or(())?;
         Ok(Char { value: index as u8 })
     }
 }

@@ -12,7 +12,7 @@ macro_rules! eval_err {
     };
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 enum StmtValue {
     Int(i64),
     Char(u8),
@@ -99,19 +99,19 @@ impl Codegen {
     pub fn generate(&mut self) -> Result<String, Error> {
         let mut output = String::new();
         for stmt in self.statements.clone() {
-            self.generate_preprocess(stmt)?;
+            self.generate_preprocess(&stmt)?;
         }
         self.instruction_pointer = 0;
         self.next_macro_uuid = 0;
         self.uuid_stack.clear();
         for stmt in self.statements.clone() {
-            let out = self.generate_stmt(stmt)?;
+            let out = self.generate_stmt(&stmt)?;
             output.push_str(&out);
         }
         Ok(output)
     }
 
-    fn generate_preprocess(&mut self, stmt: Statement) -> Result<(), Error> {
+    fn generate_preprocess(&mut self, stmt: &Statement) -> Result<(), Error> {
         match stmt {
             Statement::AstStmt(ast) => {
                 self.generate_ast_preprocess(ast)?;
@@ -121,89 +121,59 @@ impl Codegen {
                 self.generate_label_preprocess(label)?;
                 Ok(())
             }
-            Statement::MacroCall(call) => {
-                let name = match call.name.0.kind {
-                    TokenKind::MacroCall(m) => m.name,
-                    _ => panic!("unreachable"),
-                };
-                let m = self.macros.get(&name);
-                if m.is_none() {
-                    eval_err!(call.name.0.span.clone(), "undefined macro '{}'", name);
-                }
-                let m = m.unwrap();
-                let pre = self.instruction_pointer;
-                self.uuid_stack.push(self.next_macro_uuid);
-                self.next_macro_uuid += 1;
-                for stmt in m.body.clone().iter() {
-                    self.generate_preprocess(stmt.clone())?;
-                }
-                let offset = self.instruction_pointer - pre;
-                self.uuid_stack.pop();
-                let prelabels = self.labels_table.clone();
-                for (k, _) in prelabels.iter() {
-                    let v = self.labels_table.get(k).unwrap();
-                    if *v >= pre {
-                        self.labels_table
-                            .entry(k.clone())
-                            .and_modify(|e| *e += offset);
-                    }
-                    let v = self.labels_table.get(k).unwrap();
-                    println!("{}: {} {}", k, v, self.instruction_pointer);
-                }
-                Ok(())
-            }
             Statement::MacroDefinition(def) => {
                 if def.args.is_empty() {
                     eval_err!(
-                        def.mac.0.span.clone(),
+                        def.mac.0.span,
                         "macro must have at least one argument - the name of the macro"
                     );
                 }
-                let name = match def.args[0].clone().0.kind {
+                let name = match &def.args[0].0.kind {
                     TokenKind::Identifier(i) => i,
-                    _ => panic!("unreachable"),
+                    _ => unreachable!(),
                 };
-                if self.macros.contains_key(&name) {
-                    eval_err!(def.mac.0.span.clone(), "redefinition of macro '{}'", name);
+                if self.macros.contains_key(name) {
+                    eval_err!(def.mac.0.span, "redefinition of macro '{}'", name);
                 }
                 let args: Vec<String> = def.args[1..]
                     .iter()
-                    .map(|arg| match arg.clone().0.kind {
-                        TokenKind::Identifier(i) => i,
-                        _ => panic!("unreachable"),
+                    .map(|arg| match &arg.0.kind {
+                        TokenKind::Identifier(i) => i.clone(),
+                        _ => unreachable!(),
                     })
                     .collect();
-                self.macros.insert(name, Macro::new(args, def.body));
+                self.macros
+                    .insert(name.clone(), Macro::new(args, def.body.clone()));
                 Ok(())
             }
             _ => Ok(()),
         }
     }
 
-    fn generate_ast_preprocess(&mut self, ast: AstStmt) -> Result<(), Error> {
+    fn generate_ast_preprocess(&mut self, ast: &AstStmt) -> Result<(), Error> {
         if let TokenKind::Mnemonic(mnemonic) = ast.mnemonic.0.kind {
             match mnemonic {
                 Mnemonic::Define => {
-                    let ident = match ast.operands[0].clone() {
-                        AstStmtOperand::Identifier(ident) => match ident.0.kind {
+                    let ident = match &ast.operands[0] {
+                        AstStmtOperand::Identifier(ident) => match &ident.0.kind {
                             TokenKind::Identifier(i) => i,
-                            _ => panic!("unreachable"),
+                            _ => unreachable!(),
                         },
-                        _ => panic!("unreachable"),
+                        _ => unreachable!(),
                     };
-                    let value = match ast.operands[1].clone() {
+                    let value = match &ast.operands[1] {
                         AstStmtOperand::Int(i) => match i.0.kind {
                             TokenKind::Int(int) => StmtValue::Int(int as i64),
-                            _ => panic!("unreachable"),
+                            _ => unreachable!(),
                         },
                         AstStmtOperand::Char(c) => match c.0.kind {
                             TokenKind::Char(char) => StmtValue::Char(char.value),
-                            _ => panic!("unreachable"),
+                            _ => unreachable!(),
                         },
-                        _ => panic!("unreachable"),
+                        _ => unreachable!(),
                     };
                     if self.symbol_table.contains_key(&ident.to_lowercase()) {
-                        eval_err!(ast.mnemonic.0.span.clone(), "redefinition of '{}'", ident);
+                        eval_err!(ast.mnemonic.0.span, "redefinition of '{}'", ident);
                     }
                     self.symbol_table.insert(ident.to_lowercase(), value);
                 }
@@ -216,18 +186,21 @@ impl Codegen {
         Ok(())
     }
 
-    fn generate_label_preprocess(&mut self, label: __token_ast_Token::Token3) -> Result<(), Error> {
-        let mut name = match label.0.kind {
-            TokenKind::Label(l) => l.name,
-            _ => panic!("unreachable"),
+    fn generate_label_preprocess(
+        &mut self,
+        label: &__token_ast_Token::Token3,
+    ) -> Result<(), Error> {
+        let mut name = match &label.0.kind {
+            TokenKind::Label(l) => l.name.clone(),
+            _ => unreachable!(),
         };
-        if self.uuid_stack.is_empty() {
-            name.insert(0, '_');
+        if let Some(uuid) = self.uuid_stack.last() {
+            name.insert_str(0, &format!("_{}_", uuid));
         } else {
-            name.insert_str(0, &format!("_{}_", self.uuid_stack.last().unwrap()));
+            name.insert_str(0, "__");
         }
         if self.labels_table.contains_key(&name) {
-            eval_err!(label.0.span.clone(), "redefinition of label '{}'", name);
+            eval_err!(label.0.span, "redefinition of label '{}'", name);
         }
         self.labels_table.insert(name, self.instruction_pointer);
         Ok(())
@@ -235,9 +208,9 @@ impl Codegen {
 
     fn check_stmt_operand(
         &self,
-        span: Span,
+        span: &Span,
         operand: &StmtValue,
-        correct: Vec<&str>,
+        correct: &[&str],
     ) -> Result<(), Error> {
         match operand {
             StmtValue::Int(_) => {
@@ -265,9 +238,9 @@ impl Codegen {
 
     fn check_stmt_operands(
         &self,
-        span: Span,
+        span: &Span,
         operands: &[AstStmtOperand],
-        correct: Vec<Vec<&str>>,
+        correct: &[&[&str]],
     ) -> Result<(), Error> {
         if operands.len() != correct.len() {
             eval_err!(
@@ -279,12 +252,12 @@ impl Codegen {
         }
 
         for (i, operand) in operands.iter().enumerate() {
-            let expected = correct[i].clone();
+            let expected = correct[i];
             match operand {
                 AstStmtOperand::Register(r) => {
                     if !expected.contains(&"register") {
                         eval_err!(
-                            r.0.span.clone(),
+                            r.0.span,
                             "{}",
                             format!("expected {}, got register", expected.join(" or "))
                         );
@@ -293,7 +266,7 @@ impl Codegen {
                 AstStmtOperand::Label(l) => {
                     if !expected.contains(&"int") {
                         eval_err!(
-                            l.0.span.clone(),
+                            l.0.span,
                             "{}",
                             format!("expected {}, got label", expected.join(" or "))
                         );
@@ -302,7 +275,7 @@ impl Codegen {
                 AstStmtOperand::Int(i) => {
                     if !expected.contains(&"int") {
                         eval_err!(
-                            i.0.span.clone(),
+                            i.0.span,
                             "{}",
                             format!("expected {}, got integer literal", expected.join(" or "))
                         );
@@ -312,46 +285,38 @@ impl Codegen {
                     if !expected.contains(&"identifier") {
                         if let TokenKind::Identifier(i) = &ident.0.kind {
                             let value = self.symbol_table.get(&i.to_lowercase());
-                            if value.is_none() {
-                                eval_err!(
-                                    ident.0.span.clone(),
+                            let value = value.ok_or_else(|| {
+                                log_error!(
+                                    ident.0.span,
                                     "{}",
                                     format!("expected {}, got identifier", expected.join(" or "))
-                                );
-                            }
-                            self.check_stmt_operand(
-                                ident.0.span.clone(),
-                                value.unwrap(),
-                                expected.clone(),
-                            )?;
+                                )
+                            })?;
+                            self.check_stmt_operand(&ident.0.span, value, expected)?;
                             return Ok(());
                         }
-                        panic!("unreachable");
+                        unreachable!();
                     }
                 }
                 AstStmtOperand::Char(c) => {
                     if !expected.contains(&"int") {
                         eval_err!(
-                            c.0.span.clone(),
+                            c.0.span,
                             "{}",
                             format!("expected {}, got character literal", expected.join(" or "))
                         );
                     }
                 }
                 AstStmtOperand::MacroExpression(macroexpr) => {
-                    let name = match macroexpr.clone().0.kind {
-                        TokenKind::MacroExpression(m) => m.name,
-                        _ => panic!("unreachable"),
+                    let name = match &macroexpr.0.kind {
+                        TokenKind::MacroExpression(m) => &m.name,
+                        _ => unreachable!(),
                     };
                     let mut value;
                     for macro_def in self.current_macro_defs.iter().rev() {
-                        value = macro_def.get(&name);
-                        if value.is_some() {
-                            self.check_stmt_operand(
-                                macroexpr.0.span.clone(),
-                                value.unwrap(),
-                                expected.clone(),
-                            )?;
+                        value = macro_def.get(name);
+                        if let Some(value) = value {
+                            self.check_stmt_operand(&macroexpr.0.span, value, expected)?;
                             return Ok(());
                         }
                     }
@@ -362,19 +327,16 @@ impl Codegen {
         Ok(())
     }
 
-    fn generate_macro_call(&mut self, macrocall: MacroCall) -> Result<String, Error> {
-        let name = match macrocall.name.0.kind {
-            TokenKind::MacroCall(m) => m.name,
-            _ => panic!("unreachable"),
+    fn generate_macro_call(&mut self, macrocall: &MacroCall) -> Result<String, Error> {
+        let name = match &macrocall.name.0.kind {
+            TokenKind::MacroCall(m) => &m.name,
+            _ => unreachable!(),
         };
-        let m = self.macros.get(&name);
-        let m = match m {
-            Some(m) => m,
-            None => eval_err!(macrocall.name.0.span.clone(), "undefined macro '{}'", name),
-        };
+        let m = self.macros.get(name);
+        let m = m.ok_or_else(|| log_error!(macrocall.name.0.span, "undefined macro '{}'", name))?;
         if m.args.len() != macrocall.args.len() {
             eval_err!(
-                macrocall.name.0.span.clone(),
+                macrocall.name.0.span,
                 "macro '{}' expects {} arguments, got {}",
                 name,
                 m.args.len(),
@@ -382,88 +344,87 @@ impl Codegen {
             );
         }
 
+        let prelabels = self.labels_table.clone();
+        for (k, _) in prelabels.iter() {
+            let v = self.labels_table.get(k).unwrap();
+            if *v >= self.instruction_pointer {
+                let mut len = 0;
+                for stmt in m.body.iter() {
+                    match stmt {
+                        Statement::AstStmt(_) | Statement::MacroCall(_) => len += 1,
+                        _ => {}
+                    }
+                }
+                self.labels_table
+                    .entry(k.clone())
+                    .and_modify(|e| *e += len as u64);
+            }
+        }
+
         let mut macro_def = HashMap::new();
         for (i, arg) in m.args.iter().enumerate() {
-            let value = match macrocall.args[i].clone() {
+            let value = match &macrocall.args[i] {
                 AstStmtOperand::Int(i) => match i.0.kind {
                     TokenKind::Int(int) => StmtValue::Int(int as i64),
-                    _ => panic!("unreachable"),
+                    _ => unreachable!(),
                 },
                 AstStmtOperand::Char(c) => match c.0.kind {
                     TokenKind::Char(char) => StmtValue::Char(char.value),
-                    _ => panic!("unreachable"),
+                    _ => unreachable!(),
                 },
                 AstStmtOperand::Register(r) => match r.0.kind {
                     TokenKind::Register(reg) => StmtValue::Int(reg.number as i64),
-                    _ => panic!("unreachable"),
+                    _ => unreachable!(),
                 },
-                AstStmtOperand::Label(l) => match l.0.kind {
+                AstStmtOperand::Label(l) => match &l.0.kind {
                     TokenKind::Label(label) => {
                         let mut name = label.name.clone();
-                        if self.uuid_stack.is_empty() {
-                            name.insert(0, '_');
+                        if let Some(uuid) = self.uuid_stack.last() {
+                            name.insert_str(0, &format!("_{}_", uuid));
                         } else {
-                            name.insert_str(0, &format!("_{}_", self.uuid_stack.last().unwrap()));
+                            name.insert_str(0, "__");
                         }
-                        let mut value = self.labels_table.get(&name);
-                        if value.is_none() {
-                            value = self.labels_table.get(&label.name);
-                            if value.is_none() {
-                                eval_err!(l.0.span.clone(), "undefined label '{}'", label.name);
-                            }
-                        }
-                        StmtValue::Int(*value.unwrap() as i64)
+                        let value = self.labels_table.get(&name);
+                        let value = value
+                            .or_else(|| self.labels_table.get(&format!("__{}", &label.name)))
+                            .ok_or_else(|| {
+                                log_error!(l.0.span, "undefined label '{}'", label.name)
+                            })?;
+                        StmtValue::Int(*value as i64)
                     }
-                    _ => panic!("unreachable"),
+                    _ => unreachable!(),
                 },
-                AstStmtOperand::Identifier(ident) => match ident.0.kind {
+                AstStmtOperand::Identifier(ident) => match &ident.0.kind {
                     TokenKind::Identifier(i) => {
                         let value = self.symbol_table.get(&i.to_lowercase());
-                        if value.is_none() {
-                            eval_err!(ident.0.span.clone(), "undefined identifier '{}'", i);
-                        }
-                        self.check_stmt_operand(
-                            ident.0.span.clone(),
-                            value.unwrap(),
-                            vec!["int", "char"],
-                        )?;
-                        value.unwrap().clone()
+                        let value = value.ok_or_else(|| {
+                            log_error!(ident.0.span, "undefined identifier '{}'", i)
+                        })?;
+                        self.check_stmt_operand(&ident.0.span, value, &["int", "char"])?;
+                        *value
                     }
-                    _ => panic!("unreachable"),
+                    _ => unreachable!(),
                 },
                 AstStmtOperand::MacroExpression(macroexpr) => {
-                    let name = match macroexpr.clone().0.kind {
-                        TokenKind::MacroExpression(m) => m.name,
-                        _ => panic!("unreachable"),
+                    let name = match &macroexpr.0.kind {
+                        TokenKind::MacroExpression(m) => &m.name,
+                        _ => unreachable!(),
                     };
                     let mut value = None;
                     for macro_def in self.current_macro_defs.iter().rev() {
-                        value = macro_def.get(&name);
-                        if value.is_some() {
-                            self.check_stmt_operand(
-                                macroexpr.0.span.clone(),
-                                value.unwrap(),
-                                vec!["int", "char"],
-                            )?;
+                        value = macro_def.get(name);
+                        if let Some(value) = value {
+                            self.check_stmt_operand(&macroexpr.0.span, value, &["int", "char"])?;
                             break;
                         }
                     }
-                    if value.is_none() {
-                        eval_err!(
-                            macroexpr.0.span.clone(),
-                            "undefined macro expression '{}'",
-                            name
-                        );
-                    }
-                    value.unwrap().clone()
+                    *value.ok_or_else(|| {
+                        log_error!(macroexpr.0.span, "undefined macro expression '{}'", name)
+                    })?
                 }
             };
             if macro_def.contains_key(arg) {
-                eval_err!(
-                    macrocall.name.0.span.clone(),
-                    "redefinition of argument '{}'",
-                    arg
-                );
+                eval_err!(macrocall.name.0.span, "redefinition of argument '{}'", arg);
             }
             macro_def.insert(arg.clone(), value);
         }
@@ -472,7 +433,7 @@ impl Codegen {
         self.current_macro_defs.push(macro_def);
         let mut output = String::new();
         for stmt in m.body.clone() {
-            let out = self.generate_stmt(stmt)?;
+            let out = self.generate_stmt(&stmt)?;
             output.push_str(&out);
         }
         self.uuid_stack.pop();
@@ -480,7 +441,7 @@ impl Codegen {
         Ok(output)
     }
 
-    fn generate_stmt(&mut self, stmt: Statement) -> Result<String, Error> {
+    fn generate_stmt(&mut self, stmt: &Statement) -> Result<String, Error> {
         match stmt {
             Statement::AstStmt(ast) => {
                 match ast.mnemonic.0.kind {
@@ -494,351 +455,310 @@ impl Codegen {
                             }
                         }
                     }
-                    _ => panic!("unreachable"),
+                    _ => unreachable!(),
                 }
             }
             Statement::MacroCall(macrocall) => {
                 let res = self.generate_macro_call(macrocall)?;
                 Ok(res)
             }
-            Statement::Label(_) => Ok(String::new()), // handle labels before generating code
+            Statement::Label(lbl) => {
+                if !self.uuid_stack.is_empty() {
+                    self.generate_label_preprocess(lbl)?;
+                }
+                Ok(String::new())
+            }
+            Statement::IfDefMacro(ifdef) => {
+                if self.symbol_table.contains_key(
+                    &match &ifdef.identifier.0.kind {
+                        TokenKind::Identifier(ident) => ident,
+                        _ => unreachable!(),
+                    }
+                    .to_lowercase(),
+                ) {
+                    let mut output = String::new();
+                    for stmt in &ifdef.stmts {
+                        let out = self.generate_stmt(stmt)?;
+                        output += &out;
+                    }
+                    Ok(output)
+                } else {
+                    Ok(String::new())
+                }
+            }
             Statement::IncludeMacro(_) => Ok(String::new()), // handle include macros before generating code
             Statement::MacroDefinition(_) => Ok(String::new()), // handle macro definitions before generating code
             Statement::Newline(_) => Ok(String::new()),
         }
     }
 
-    fn generate_ast_stmt(&mut self, ast: AstStmt) -> Result<String, Error> {
-        let mnemonic = ast.mnemonic.0.kind;
-        let operands = ast.operands;
-        let span = ast.mnemonic.0.span.clone();
+    fn generate_ast_stmt(&mut self, ast: &AstStmt) -> Result<String, Error> {
+        let mnemonic = &ast.mnemonic.0.kind;
+        let operands = &ast.operands;
+        let span = &ast.mnemonic.0.span;
         let machine_code;
 
         match mnemonic {
             TokenKind::Mnemonic(mnemonic) => match mnemonic {
-                Mnemonic::Define => panic!("unreachable"),
+                Mnemonic::Define => unreachable!(),
                 Mnemonic::Nop => {
-                    self.check_stmt_operands(span.clone(), &operands, vec![])?;
+                    self.check_stmt_operands(span, operands, &[])?;
                     machine_code = 0;
                 }
                 Mnemonic::Hlt => {
-                    self.check_stmt_operands(span.clone(), &operands, vec![])?;
+                    self.check_stmt_operands(span, operands, &[])?;
                     machine_code = 1 << 12;
                 }
                 Mnemonic::Add => {
                     self.check_stmt_operands(
-                        span.clone(),
-                        &operands,
-                        vec![vec!["register"], vec!["register"], vec!["register"]],
+                        span,
+                        operands,
+                        &[&["register"], &["register"], &["register"]],
                     )?;
-                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
-                    let rs = self.generate_stmt_operand(operands[1].clone(), 4)?;
-                    let rt = self.generate_stmt_operand(operands[2].clone(), 4)?;
+                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
+                    let rs = self.generate_stmt_operand(&operands[1], 4)?;
+                    let rt = self.generate_stmt_operand(&operands[2], 4)?;
                     machine_code = 2 << 12 | (rd << 8) | (rs << 4) | rt;
                 }
                 Mnemonic::Sub => {
                     self.check_stmt_operands(
-                        span.clone(),
-                        &operands,
-                        vec![vec!["register"], vec!["register"], vec!["register"]],
+                        span,
+                        operands,
+                        &[&["register"], &["register"], &["register"]],
                     )?;
-                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
-                    let rs = self.generate_stmt_operand(operands[1].clone(), 4)?;
-                    let rt = self.generate_stmt_operand(operands[2].clone(), 4)?;
+                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
+                    let rs = self.generate_stmt_operand(&operands[1], 4)?;
+                    let rt = self.generate_stmt_operand(&operands[2], 4)?;
                     machine_code = 3 << 12 | (rd << 8) | (rs << 4) | rt;
                 }
                 Mnemonic::Nor => {
                     self.check_stmt_operands(
-                        span.clone(),
-                        &operands,
-                        vec![vec!["register"], vec!["register"], vec!["register"]],
+                        span,
+                        operands,
+                        &[&["register"], &["register"], &["register"]],
                     )?;
-                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
-                    let rs = self.generate_stmt_operand(operands[1].clone(), 4)?;
-                    let rt = self.generate_stmt_operand(operands[2].clone(), 4)?;
+                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
+                    let rs = self.generate_stmt_operand(&operands[1], 4)?;
+                    let rt = self.generate_stmt_operand(&operands[2], 4)?;
                     machine_code = 4 << 12 | (rd << 8) | (rs << 4) | rt;
                 }
                 Mnemonic::And => {
                     self.check_stmt_operands(
-                        span.clone(),
-                        &operands,
-                        vec![vec!["register"], vec!["register"], vec!["register"]],
+                        span,
+                        operands,
+                        &[&["register"], &["register"], &["register"]],
                     )?;
-                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
-                    let rs = self.generate_stmt_operand(operands[1].clone(), 4)?;
-                    let rt = self.generate_stmt_operand(operands[2].clone(), 4)?;
+                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
+                    let rs = self.generate_stmt_operand(&operands[1], 4)?;
+                    let rt = self.generate_stmt_operand(&operands[2], 4)?;
                     machine_code = 5 << 12 | (rd << 8) | (rs << 4) | rt;
                 }
                 Mnemonic::Xor => {
                     self.check_stmt_operands(
-                        span.clone(),
-                        &operands,
-                        vec![vec!["register"], vec!["register"], vec!["register"]],
+                        span,
+                        operands,
+                        &[&["register"], &["register"], &["register"]],
                     )?;
-                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
-                    let rs = self.generate_stmt_operand(operands[1].clone(), 4)?;
-                    let rt = self.generate_stmt_operand(operands[2].clone(), 4)?;
+                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
+                    let rs = self.generate_stmt_operand(&operands[1], 4)?;
+                    let rt = self.generate_stmt_operand(&operands[2], 4)?;
                     machine_code = 6 << 12 | (rd << 8) | (rs << 4) | rt;
                 }
                 Mnemonic::Rsh => {
-                    self.check_stmt_operands(
-                        span.clone(),
-                        &operands,
-                        vec![vec!["register"], vec!["register"]],
-                    )?;
-                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
-                    let rs = self.generate_stmt_operand(operands[1].clone(), 4)?;
+                    self.check_stmt_operands(span, operands, &[&["register"], &["register"]])?;
+                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
+                    let rs = self.generate_stmt_operand(&operands[1], 4)?;
                     machine_code = 7 << 12 | (rd << 8) | rs;
                 }
                 Mnemonic::Ldi => {
-                    self.check_stmt_operands(
-                        span.clone(),
-                        &operands,
-                        vec![vec!["register"], vec!["int"]],
-                    )?;
-                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
-                    let imm = self.generate_stmt_operand(operands[1].clone(), 8)?;
+                    self.check_stmt_operands(span, operands, &[&["register"], &["int"]])?;
+                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
+                    let imm = self.generate_stmt_operand(&operands[1], 8)?;
                     if !(-128..=255).contains(&imm) {
-                        eval_err!(
-                            span.clone(),
-                            "immediate value {} out of range [-128, 255]",
-                            imm
-                        );
+                        eval_err!(span, "immediate value {} out of range [-128, 255]", imm);
                     }
                     machine_code = 8 << 12 | (rd << 8) | imm;
                 }
                 Mnemonic::Adi => {
-                    self.check_stmt_operands(
-                        span.clone(),
-                        &operands,
-                        vec![vec!["register"], vec!["int"]],
-                    )?;
-                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
-                    let imm = self.generate_stmt_operand(operands[1].clone(), 8)?;
+                    self.check_stmt_operands(span, operands, &[&["register"], &["int"]])?;
+                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
+                    let imm = self.generate_stmt_operand(&operands[1], 8)?;
                     if !(-128..=255).contains(&imm) {
-                        eval_err!(
-                            span.clone(),
-                            "immediate value {} out of range [-128, 255]",
-                            imm
-                        );
+                        eval_err!(span, "immediate value {} out of range [-128, 255]", imm);
                     }
                     machine_code = 9 << 12 | (rd << 8) | imm;
                 }
                 Mnemonic::Jmp => {
-                    self.check_stmt_operands(span.clone(), &operands, vec![vec!["int"]])?;
-                    let addr = self.generate_stmt_operand(operands[0].clone(), 10)?;
+                    self.check_stmt_operands(span, operands, &[&["int"]])?;
+                    let addr = self.generate_stmt_operand(&operands[0], 10)?;
                     if addr != (addr % 1024) {
-                        eval_err!(span.clone(), "jump address {} out of range [0, 1023]", addr);
+                        eval_err!(span, "jump address {} out of range [0, 1023]", addr);
                     }
                     machine_code = 10 << 12 | addr;
                 }
                 Mnemonic::Brh => {
-                    self.check_stmt_operands(
-                        span.clone(),
-                        &operands,
-                        vec![vec!["int"], vec!["int"]],
-                    )?;
-                    let cond = self.generate_stmt_operand(operands[0].clone(), 2)?;
-                    let addr = self.generate_stmt_operand(operands[1].clone(), 10)?;
+                    self.check_stmt_operands(span, operands, &[&["int"], &["int"]])?;
+                    let cond = self.generate_stmt_operand(&operands[0], 2)?;
+                    let addr = self.generate_stmt_operand(&operands[1], 10)?;
                     if addr != (addr % 1024) {
-                        eval_err!(span.clone(), "jump address {} out of range [0, 1023]", addr);
+                        eval_err!(span, "jump address {} out of range [0, 1023]", addr);
                     }
                     machine_code = 11 << 12 | (cond << 10) | addr;
                 }
                 Mnemonic::Cal => {
-                    self.check_stmt_operands(span.clone(), &operands, vec![vec!["int"]])?;
-                    let addr = self.generate_stmt_operand(operands[0].clone(), 10)?;
+                    self.check_stmt_operands(span, operands, &[&["int"]])?;
+                    let addr = self.generate_stmt_operand(&operands[0], 10)?;
                     machine_code = 12 << 12 | addr;
                 }
                 Mnemonic::Ret => {
-                    self.check_stmt_operands(span.clone(), &operands, vec![])?;
+                    self.check_stmt_operands(span, operands, &[])?;
                     machine_code = 13 << 12;
                 }
                 Mnemonic::Lod => {
                     if operands.len() == 2 {
-                        self.check_stmt_operands(
-                            span.clone(),
-                            &operands,
-                            vec![vec!["register"], vec!["register"]],
-                        )?;
+                        self.check_stmt_operands(span, operands, &[&["register"], &["register"]])?;
                     } else {
                         self.check_stmt_operands(
-                            span.clone(),
-                            &operands,
-                            vec![vec!["register"], vec!["register"], vec!["int"]],
+                            span,
+                            operands,
+                            &[&["register"], &["register"], &["int"]],
                         )?;
                     }
-                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
-                    let rs = self.generate_stmt_operand(operands[1].clone(), 4)?;
+                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
+                    let rs = self.generate_stmt_operand(&operands[1], 4)?;
                     let offset = if operands.len() == 3 {
-                        self.generate_stmt_operand(operands[2].clone(), 4)?
+                        self.generate_stmt_operand(&operands[2], 4)?
                     } else {
                         0
                     };
                     if !(-8..=7).contains(&offset) {
-                        eval_err!(span.clone(), "offset value {} out of range [-8, 7]", offset);
+                        eval_err!(span, "offset value {} out of range [-8, 7]", offset);
                     }
                     machine_code = 14 << 12 | (rd << 8) | (rs << 4) | offset;
                 }
                 Mnemonic::Str => {
                     if operands.len() == 2 {
-                        self.check_stmt_operands(
-                            span.clone(),
-                            &operands,
-                            vec![vec!["register"], vec!["register"]],
-                        )?;
+                        self.check_stmt_operands(span, operands, &[&["register"], &["register"]])?;
                     } else {
                         self.check_stmt_operands(
-                            span.clone(),
-                            &operands,
-                            vec![vec!["register"], vec!["register"], vec!["int"]],
+                            span,
+                            operands,
+                            &[&["register"], &["register"], &["int"]],
                         )?;
                     }
-                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
-                    let rs = self.generate_stmt_operand(operands[1].clone(), 4)?;
+                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
+                    let rs = self.generate_stmt_operand(&operands[1], 4)?;
                     let offset = if operands.len() == 3 {
-                        self.generate_stmt_operand(operands[2].clone(), 4)?
+                        self.generate_stmt_operand(&operands[2], 4)?
                     } else {
                         0
                     };
                     if !(-8..=7).contains(&offset) {
-                        eval_err!(span.clone(), "offset value {} out of range [-8, 7]", offset);
+                        eval_err!(span, "offset value {} out of range [-8, 7]", offset);
                     }
                     machine_code = 15 << 12 | (rd << 8) | (rs << 4) | offset;
                 }
                 Mnemonic::Cmp => {
-                    self.check_stmt_operands(
-                        span.clone(),
-                        &operands,
-                        vec![vec!["register"], vec!["register"]],
-                    )?;
-                    let rs = self.generate_stmt_operand(operands[0].clone(), 4)?;
-                    let rt = self.generate_stmt_operand(operands[1].clone(), 4)?;
+                    self.check_stmt_operands(span, operands, &[&["register"], &["register"]])?;
+                    let rs = self.generate_stmt_operand(&operands[0], 4)?;
+                    let rt = self.generate_stmt_operand(&operands[1], 4)?;
                     machine_code = 3 << 12 | (rs << 8) | (rt << 4);
                 }
                 Mnemonic::Mov => {
-                    self.check_stmt_operands(
-                        span.clone(),
-                        &operands,
-                        vec![vec!["register"], vec!["register"]],
-                    )?;
-                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
-                    let rs = self.generate_stmt_operand(operands[1].clone(), 4)?;
+                    self.check_stmt_operands(span, operands, &[&["register"], &["register"]])?;
+                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
+                    let rs = self.generate_stmt_operand(&operands[1], 4)?;
                     machine_code = 2 << 12 | (rd << 8) | rs;
                 }
                 Mnemonic::Lsh => {
-                    self.check_stmt_operands(
-                        span.clone(),
-                        &operands,
-                        vec![vec!["register"], vec!["register"]],
-                    )?;
-                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
-                    let rs = self.generate_stmt_operand(operands[1].clone(), 4)?;
+                    self.check_stmt_operands(span, operands, &[&["register"], &["register"]])?;
+                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
+                    let rs = self.generate_stmt_operand(&operands[1], 4)?;
                     machine_code = 2 << 12 | (rd << 8) | (rd << 4) | rs;
                 }
                 Mnemonic::Inc => {
-                    self.check_stmt_operands(span.clone(), &operands, vec![vec!["register"]])?;
-                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
+                    self.check_stmt_operands(span, operands, &[&["register"]])?;
+                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
                     machine_code = 9 << 12 | (rd << 8) | 1;
                 }
                 Mnemonic::Dec => {
-                    self.check_stmt_operands(span.clone(), &operands, vec![vec!["register"]])?;
-                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
-                    machine_code = 9 << 12 | (rd << 8) | (-1 & 0xff);
+                    self.check_stmt_operands(span, operands, &[&["register"]])?;
+                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
+                    machine_code = 9 << 12 | (rd << 8) | 0xff;
                 }
                 Mnemonic::Not => {
-                    self.check_stmt_operands(
-                        span.clone(),
-                        &operands,
-                        vec![vec!["register"], vec!["register"]],
-                    )?;
-                    let rd = self.generate_stmt_operand(operands[0].clone(), 4)?;
-                    let rs = self.generate_stmt_operand(operands[1].clone(), 4)?;
+                    self.check_stmt_operands(span, operands, &[&["register"], &["register"]])?;
+                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
+                    let rs = self.generate_stmt_operand(&operands[1], 4)?;
                     machine_code = 4 << 12 | (rd << 8) | rs;
                 }
             },
-            _ => panic!("unreachable"),
+            _ => unreachable!(),
         }
 
         Ok(format!("{:016b}\n", machine_code))
     }
 
-    fn generate_stmt_operand(&mut self, operand: AstStmtOperand, bits: u32) -> Result<i64, Error> {
+    fn generate_stmt_operand(&mut self, operand: &AstStmtOperand, bits: u32) -> Result<i64, Error> {
         Ok(match operand {
             AstStmtOperand::Register(r) => match r.0.kind {
                 TokenKind::Register(reg) => reg.number as i64,
-                _ => panic!("unreachable"),
+                _ => unreachable!(),
             },
-            AstStmtOperand::Label(l) => match l.0.kind {
+            AstStmtOperand::Label(l) => match &l.0.kind {
                 TokenKind::Label(label) => {
                     let mut name = label.name.clone();
-                    if self.uuid_stack.is_empty() {
-                        name.insert(0, '_');
+                    if let Some(uuid) = self.uuid_stack.last() {
+                        name.insert_str(0, &format!("_{}_", uuid));
                     } else {
-                        name.insert_str(0, &format!("_{}_", self.uuid_stack.last().unwrap()));
+                        name.insert_str(0, "__");
                     }
-                    let mut value = self.labels_table.get(&name);
-                    if value.is_none() {
-                        value = self.labels_table.get(&label.name);
-                        if value.is_none() {
-                            eval_err!(l.0.span.clone(), "undefined label '{}'", label.name);
-                        }
-                    }
-                    *value.unwrap() as i64
+                    let value = self.labels_table.get(&name);
+                    *value
+                        .or_else(|| self.labels_table.get(&format!("__{}", &label.name)))
+                        .ok_or_else(|| log_error!(l.0.span, "undefined label '{}'", label.name))?
+                        as i64
                 }
-                _ => panic!("unreachable"),
+                _ => unreachable!(),
             },
             AstStmtOperand::Int(i) => match i.0.kind {
                 TokenKind::Int(int) => int as i64,
-                _ => panic!("unreachable"),
+                _ => unreachable!(),
             },
-            AstStmtOperand::Identifier(ident) => match ident.0.kind {
+            AstStmtOperand::Identifier(ident) => match &ident.0.kind {
                 TokenKind::Identifier(i) => {
                     let value = self.symbol_table.get(&i.to_lowercase());
-                    if value.is_none() {
-                        eval_err!(ident.0.span.clone(), "undefined identifier '{}'", i);
-                    }
-                    self.check_stmt_operand(
-                        ident.0.span.clone(),
-                        value.unwrap(),
-                        vec!["int", "char"],
-                    )?;
-                    match value.unwrap() {
+                    let value = value
+                        .ok_or_else(|| log_error!(ident.0.span, "undefined identifier '{}'", i))?;
+                    self.check_stmt_operand(&ident.0.span, value, &["int", "char"])?;
+                    match value {
                         StmtValue::Int(int) => *int,
                         StmtValue::Char(c) => *c as i64,
                     }
                 }
-                _ => panic!("unreachable"),
+                _ => unreachable!(),
             },
             AstStmtOperand::Char(c) => match c.0.kind {
                 TokenKind::Char(char) => char.value as i64,
-                _ => panic!("unreachable"),
+                _ => unreachable!(),
             },
             AstStmtOperand::MacroExpression(macroexpr) => {
-                let name = match macroexpr.clone().0.kind {
-                    TokenKind::MacroExpression(m) => m.name,
-                    _ => panic!("unreachable"),
+                let name = match &macroexpr.0.kind {
+                    TokenKind::MacroExpression(m) => &m.name,
+                    _ => unreachable!(),
                 };
                 let mut value;
                 for macro_def in self.current_macro_defs.iter().rev() {
-                    value = macro_def.get(&name);
-                    if value.is_some() {
-                        self.check_stmt_operand(
-                            macroexpr.0.span.clone(),
-                            value.unwrap(),
-                            vec!["int", "char"],
-                        )?;
-                        match value.unwrap() {
+                    value = macro_def.get(name);
+                    if let Some(value) = value {
+                        self.check_stmt_operand(&macroexpr.0.span, value, &["int", "char"])?;
+                        match value {
                             StmtValue::Int(int) => return Ok(*int & (2i64.pow(bits) - 1)),
                             StmtValue::Char(c) => return Ok(*c as i64 & (2i64.pow(bits) - 1)),
                         }
                     }
                 }
-                eval_err!(
-                    macroexpr.0.span.clone(),
-                    "undefined macro expression '{}'",
-                    name
-                );
+                eval_err!(macroexpr.0.span, "undefined macro expression '{}'", name);
             }
         } & (2i64.pow(bits) - 1))
     }
