@@ -1,21 +1,18 @@
 use std::collections::HashMap;
 
 use crate::lexer::{Mnemonic, TokenKind};
-use crate::parser::{AstStmt, AstStmtOperand, MacroCall, Statement, __token_ast_Token};
+use crate::parser::{
+    AstStmt, Comparison, Define, Equality, Expression, Factor, LogicAnd, MacroCall, Primary,
+    Statement, Term, Unary, __token_ast_Token,
+};
 
-use laps::log_error;
-use laps::span::{Error, Span};
+use laps::span::{Error, Spanned};
+use laps::{log_error, log_warning};
 
 macro_rules! eval_err {
     ($span:expr, $($arg:tt)+) => {
         return Err(log_error!($span, $($arg)+))
     };
-}
-
-#[derive(Clone, Copy, Debug)]
-enum StmtValue {
-    Int(i64),
-    Char(u8),
 }
 
 struct Macro {
@@ -29,13 +26,31 @@ impl Macro {
     }
 }
 
+macro_rules! eval_binop {
+    ($($fn_name: ident, $Ty: ty: $child_fn: ident, $($token_kind: ident, $op: tt),*;)*) => {
+        $(
+            fn $fn_name(&mut self, node: &$Ty) -> Result<i64, Error> {
+                node.rest.iter().try_fold(
+                    self.$child_fn(&node.first)?,
+                    |acc, (op, operand)|  Ok(match op.0.kind {
+                        $(
+                            TokenKind::$token_kind => acc $op self.$child_fn(operand)?,
+                        )*
+                        _ => unreachable!(),
+                    } as i64)
+                )
+            }
+        )*
+    };
+}
+
 pub struct Codegen {
     statements: Vec<Statement>,
-    symbol_table: HashMap<String, StmtValue>,
+    symbol_table: HashMap<String, i64>,
     labels_table: HashMap<String, u64>,
     instruction_pointer: u64,
     macros: HashMap<String, Macro>,
-    current_macro_defs: Vec<HashMap<String, StmtValue>>,
+    current_macro_defs: Vec<HashMap<String, i64>>,
     next_macro_uuid: u64,
     uuid_stack: Vec<u64>,
 }
@@ -53,22 +68,18 @@ impl Codegen {
             uuid_stack: Vec::new(),
         };
 
-        res.symbol_table.insert("eq".to_string(), StmtValue::Int(0));
-        res.symbol_table.insert("ne".to_string(), StmtValue::Int(1));
-        res.symbol_table.insert("ge".to_string(), StmtValue::Int(2));
-        res.symbol_table.insert("lt".to_string(), StmtValue::Int(3));
-        res.symbol_table.insert("z".to_string(), StmtValue::Int(0));
-        res.symbol_table.insert("nz".to_string(), StmtValue::Int(1));
-        res.symbol_table.insert("c".to_string(), StmtValue::Int(2));
-        res.symbol_table.insert("nc".to_string(), StmtValue::Int(3));
-        res.symbol_table
-            .insert("zero".to_string(), StmtValue::Int(0));
-        res.symbol_table
-            .insert("notzero".to_string(), StmtValue::Int(1));
-        res.symbol_table
-            .insert("carry".to_string(), StmtValue::Int(2));
-        res.symbol_table
-            .insert("notcarry".to_string(), StmtValue::Int(3));
+        res.symbol_table.insert("eq".to_string(), 0);
+        res.symbol_table.insert("ne".to_string(), 1);
+        res.symbol_table.insert("ge".to_string(), 2);
+        res.symbol_table.insert("lt".to_string(), 3);
+        res.symbol_table.insert("z".to_string(), 0);
+        res.symbol_table.insert("nz".to_string(), 1);
+        res.symbol_table.insert("c".to_string(), 2);
+        res.symbol_table.insert("nc".to_string(), 3);
+        res.symbol_table.insert("zero".to_string(), 0);
+        res.symbol_table.insert("notzero".to_string(), 1);
+        res.symbol_table.insert("carry".to_string(), 2);
+        res.symbol_table.insert("notcarry".to_string(), 3);
 
         let ports = [
             "pixel_x",
@@ -89,8 +100,7 @@ impl Codegen {
             "controller_input",
         ];
         for (i, port) in ports.iter().enumerate() {
-            res.symbol_table
-                .insert(port.to_string(), StmtValue::Int(i as i64 + 240));
+            res.symbol_table.insert(port.to_string(), i as i64 + 240);
         }
 
         res
@@ -113,14 +123,12 @@ impl Codegen {
 
     fn generate_preprocess(&mut self, stmt: &Statement) -> Result<(), Error> {
         match stmt {
-            Statement::AstStmt(ast) => {
-                self.generate_ast_preprocess(ast)?;
+            Statement::AstStmt(_) => {
+                self.instruction_pointer += 1;
                 Ok(())
             }
-            Statement::Label(label) => {
-                self.generate_label_preprocess(label)?;
-                Ok(())
-            }
+            Statement::Define(define) => self.generate_define_preprocess(define),
+            Statement::Label(label) => self.generate_label_preprocess(label),
             Statement::MacroDefinition(def) => {
                 if def.args.is_empty() {
                     eval_err!(
@@ -150,40 +158,109 @@ impl Codegen {
         }
     }
 
-    fn generate_ast_preprocess(&mut self, ast: &AstStmt) -> Result<(), Error> {
-        if let TokenKind::Mnemonic(mnemonic) = ast.mnemonic.0.kind {
-            match mnemonic {
-                Mnemonic::Define => {
-                    let ident = match &ast.operands[0] {
-                        AstStmtOperand::Identifier(ident) => match &ident.0.kind {
-                            TokenKind::Identifier(i) => i,
-                            _ => unreachable!(),
-                        },
-                        _ => unreachable!(),
-                    };
-                    let value = match &ast.operands[1] {
-                        AstStmtOperand::Int(i) => match i.0.kind {
-                            TokenKind::Int(int) => StmtValue::Int(int as i64),
-                            _ => unreachable!(),
-                        },
-                        AstStmtOperand::Char(c) => match c.0.kind {
-                            TokenKind::Char(char) => StmtValue::Char(char.value),
-                            _ => unreachable!(),
-                        },
-                        _ => unreachable!(),
-                    };
-                    if self.symbol_table.contains_key(&ident.to_lowercase()) {
-                        eval_err!(ast.mnemonic.0.span, "redefinition of '{}'", ident);
-                    }
-                    self.symbol_table.insert(ident.to_lowercase(), value);
-                }
-                _ => {
-                    self.instruction_pointer += 1;
-                }
-            }
+    fn generate_define_preprocess(&mut self, define: &Define) -> Result<(), Error> {
+        let ident = match &define.name.0.kind {
+            TokenKind::Identifier(ident) => ident,
+            _ => unreachable!(),
+        };
+        let value = self.eval_expression(&define.value, 64)?;
+        if self.symbol_table.contains_key(&ident.to_lowercase()) {
+            eval_err!(define.name.0.span, "redefinition of '{}'", ident);
         }
-
+        self.symbol_table.insert(ident.to_lowercase(), value);
         Ok(())
+    }
+
+    fn eval_expression(&mut self, expression: &Expression, bits: u32) -> Result<i64, Error> {
+        let value = Ok(expression.rest.iter().try_fold(
+            self.eval_logic_and(&expression.first)?,
+            |acc, (_op, operand)| Ok(acc | self.eval_logic_and(operand)?),
+        )?)?;
+        if (value.is_negative() && value.leading_ones() <= 64 - bits)
+            || (value.is_positive() && value.leading_zeros() < 64 - bits)
+        {
+            log_warning!(expression.span(), "Value is truncated to {bits} bits");
+        }
+        Ok(value & (2i128.pow(bits) - 1) as i64)
+    }
+
+    eval_binop!(
+        eval_logic_and, LogicAnd: eval_equality, And, &;
+        eval_equality, Equality: eval_cmp, Eq, ==, Ne, !=;
+        eval_cmp, Comparison: eval_term, Ge, >=, Gt, >, Le, <=, Lt, <;
+        eval_term, Term: eval_factor, Plus, +, Minus, -;
+        eval_factor, Factor: eval_unary, Mult, *, Div, /;
+    );
+
+    fn eval_unary(&mut self, unary: &Unary) -> Result<i64, Error> {
+        unary
+            .ops
+            .iter()
+            .rev()
+            .try_fold(self.eval_primary(&unary.primary)?, |acc, op| {
+                Ok(match op.0.kind {
+                    TokenKind::Not => !acc,
+                    TokenKind::Plus => acc,
+                    TokenKind::Minus => -acc,
+                    _ => unreachable!(),
+                })
+            })
+    }
+
+    fn eval_primary(&mut self, primary: &Primary) -> Result<i64, Error> {
+        Ok(match primary {
+            Primary::Parenthesized(_, expr, _) => self.eval_expression(expr, 64)?,
+            Primary::Register(r) => match r.0.kind {
+                TokenKind::Register(reg) => reg.number as i64,
+                _ => unreachable!(),
+            },
+            Primary::Label(l) => match &l.0.kind {
+                TokenKind::Label(label) => {
+                    let mut name = label.name.clone();
+                    if let Some(uuid) = self.uuid_stack.last() {
+                        name.insert_str(0, &format!("_{}_", uuid));
+                    } else {
+                        name.insert_str(0, "__");
+                    }
+                    let value = self.labels_table.get(&name);
+                    *value
+                        .or_else(|| self.labels_table.get(&format!("__{}", &label.name)))
+                        .ok_or_else(|| log_error!(l.0.span, "undefined label '{}'", label.name))?
+                        as i64
+                }
+                _ => unreachable!(),
+            },
+            Primary::Int(i) => match i.0.kind {
+                TokenKind::Int(int) => int as i64,
+                _ => unreachable!(),
+            },
+            Primary::Identifier(ident) => match &ident.0.kind {
+                TokenKind::Identifier(i) => {
+                    let value = self.symbol_table.get(&i.to_lowercase());
+                    *value
+                        .ok_or_else(|| log_error!(ident.0.span, "undefined identifier '{}'", i))?
+                }
+                _ => unreachable!(),
+            },
+            Primary::Char(c) => match c.0.kind {
+                TokenKind::Char(char) => char.value as i64,
+                _ => unreachable!(),
+            },
+            Primary::MacroExpression(macroexpr) => {
+                let name = match &macroexpr.0.kind {
+                    TokenKind::MacroExpression(m) => &m.name,
+                    _ => unreachable!(),
+                };
+                let mut value;
+                for macro_def in self.current_macro_defs.iter().rev() {
+                    value = macro_def.get(name);
+                    if let Some(value) = value {
+                        return Ok(*value);
+                    }
+                }
+                eval_err!(macroexpr.0.span, "undefined macro expression '{}'", name);
+            }
+        })
     }
 
     fn generate_label_preprocess(
@@ -203,127 +280,6 @@ impl Codegen {
             eval_err!(label.0.span, "redefinition of label '{}'", name);
         }
         self.labels_table.insert(name, self.instruction_pointer);
-        Ok(())
-    }
-
-    fn check_stmt_operand(
-        &self,
-        span: &Span,
-        operand: &StmtValue,
-        correct: &[&str],
-    ) -> Result<(), Error> {
-        match operand {
-            StmtValue::Int(_) => {
-                if !correct.contains(&"int") {
-                    eval_err!(
-                        span,
-                        "{}",
-                        format!("expected {}, got integer literal", correct.join(" or "))
-                    );
-                }
-            }
-            StmtValue::Char(_) => {
-                if !correct.contains(&"char") && !correct.contains(&"int") {
-                    eval_err!(
-                        span,
-                        "{}",
-                        format!("expected {}, got character literal", correct.join(" or "))
-                    );
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    fn check_stmt_operands(
-        &self,
-        span: &Span,
-        operands: &[AstStmtOperand],
-        correct: &[&[&str]],
-    ) -> Result<(), Error> {
-        if operands.len() != correct.len() {
-            eval_err!(
-                span,
-                "expected {} operands, got {}",
-                correct.len(),
-                operands.len()
-            );
-        }
-
-        for (i, operand) in operands.iter().enumerate() {
-            let expected = correct[i];
-            match operand {
-                AstStmtOperand::Register(r) => {
-                    if !expected.contains(&"register") {
-                        eval_err!(
-                            r.0.span,
-                            "{}",
-                            format!("expected {}, got register", expected.join(" or "))
-                        );
-                    }
-                }
-                AstStmtOperand::Label(l) => {
-                    if !expected.contains(&"int") {
-                        eval_err!(
-                            l.0.span,
-                            "{}",
-                            format!("expected {}, got label", expected.join(" or "))
-                        );
-                    }
-                }
-                AstStmtOperand::Int(i) => {
-                    if !expected.contains(&"int") {
-                        eval_err!(
-                            i.0.span,
-                            "{}",
-                            format!("expected {}, got integer literal", expected.join(" or "))
-                        );
-                    }
-                }
-                AstStmtOperand::Identifier(ident) => {
-                    if !expected.contains(&"identifier") {
-                        if let TokenKind::Identifier(i) = &ident.0.kind {
-                            let value = self.symbol_table.get(&i.to_lowercase());
-                            let value = value.ok_or_else(|| {
-                                log_error!(
-                                    ident.0.span,
-                                    "{}",
-                                    format!("expected {}, got identifier", expected.join(" or "))
-                                )
-                            })?;
-                            self.check_stmt_operand(&ident.0.span, value, expected)?;
-                            return Ok(());
-                        }
-                        unreachable!();
-                    }
-                }
-                AstStmtOperand::Char(c) => {
-                    if !expected.contains(&"int") {
-                        eval_err!(
-                            c.0.span,
-                            "{}",
-                            format!("expected {}, got character literal", expected.join(" or "))
-                        );
-                    }
-                }
-                AstStmtOperand::MacroExpression(macroexpr) => {
-                    let name = match &macroexpr.0.kind {
-                        TokenKind::MacroExpression(m) => &m.name,
-                        _ => unreachable!(),
-                    };
-                    let mut value;
-                    for macro_def in self.current_macro_defs.iter().rev() {
-                        value = macro_def.get(name);
-                        if let Some(value) = value {
-                            self.check_stmt_operand(&macroexpr.0.span, value, expected)?;
-                            return Ok(());
-                        }
-                    }
-                }
-            }
-        }
-
         Ok(())
     }
 
@@ -361,68 +317,11 @@ impl Codegen {
             }
         }
 
+        let macro_body = m.body.clone();
+
         let mut macro_def = HashMap::new();
-        for (i, arg) in m.args.iter().enumerate() {
-            let value = match &macrocall.args[i] {
-                AstStmtOperand::Int(i) => match i.0.kind {
-                    TokenKind::Int(int) => StmtValue::Int(int as i64),
-                    _ => unreachable!(),
-                },
-                AstStmtOperand::Char(c) => match c.0.kind {
-                    TokenKind::Char(char) => StmtValue::Char(char.value),
-                    _ => unreachable!(),
-                },
-                AstStmtOperand::Register(r) => match r.0.kind {
-                    TokenKind::Register(reg) => StmtValue::Int(reg.number as i64),
-                    _ => unreachable!(),
-                },
-                AstStmtOperand::Label(l) => match &l.0.kind {
-                    TokenKind::Label(label) => {
-                        let mut name = label.name.clone();
-                        if let Some(uuid) = self.uuid_stack.last() {
-                            name.insert_str(0, &format!("_{}_", uuid));
-                        } else {
-                            name.insert_str(0, "__");
-                        }
-                        let value = self.labels_table.get(&name);
-                        let value = value
-                            .or_else(|| self.labels_table.get(&format!("__{}", &label.name)))
-                            .ok_or_else(|| {
-                                log_error!(l.0.span, "undefined label '{}'", label.name)
-                            })?;
-                        StmtValue::Int(*value as i64)
-                    }
-                    _ => unreachable!(),
-                },
-                AstStmtOperand::Identifier(ident) => match &ident.0.kind {
-                    TokenKind::Identifier(i) => {
-                        let value = self.symbol_table.get(&i.to_lowercase());
-                        let value = value.ok_or_else(|| {
-                            log_error!(ident.0.span, "undefined identifier '{}'", i)
-                        })?;
-                        self.check_stmt_operand(&ident.0.span, value, &["int", "char"])?;
-                        *value
-                    }
-                    _ => unreachable!(),
-                },
-                AstStmtOperand::MacroExpression(macroexpr) => {
-                    let name = match &macroexpr.0.kind {
-                        TokenKind::MacroExpression(m) => &m.name,
-                        _ => unreachable!(),
-                    };
-                    let mut value = None;
-                    for macro_def in self.current_macro_defs.iter().rev() {
-                        value = macro_def.get(name);
-                        if let Some(value) = value {
-                            self.check_stmt_operand(&macroexpr.0.span, value, &["int", "char"])?;
-                            break;
-                        }
-                    }
-                    *value.ok_or_else(|| {
-                        log_error!(macroexpr.0.span, "undefined macro expression '{}'", name)
-                    })?
-                }
-            };
+        for (i, arg) in m.args.clone().iter().enumerate() {
+            let value = self.eval_expression(&macrocall.args[i], 64)?;
             if macro_def.contains_key(arg) {
                 eval_err!(macrocall.name.0.span, "redefinition of argument '{}'", arg);
             }
@@ -432,7 +331,7 @@ impl Codegen {
         self.next_macro_uuid += 1;
         self.current_macro_defs.push(macro_def);
         let mut output = String::new();
-        for stmt in m.body.clone() {
+        for stmt in macro_body {
             let out = self.generate_stmt(&stmt)?;
             output.push_str(&out);
         }
@@ -443,25 +342,9 @@ impl Codegen {
 
     fn generate_stmt(&mut self, stmt: &Statement) -> Result<String, Error> {
         match stmt {
-            Statement::AstStmt(ast) => {
-                match ast.mnemonic.0.kind {
-                    TokenKind::Mnemonic(m) => {
-                        match m {
-                            Mnemonic::Define => Ok(String::new()), // handle defines before generating code
-                            _ => {
-                                let res = self.generate_ast_stmt(ast)?;
-                                self.instruction_pointer += 1;
-                                Ok(res)
-                            }
-                        }
-                    }
-                    _ => unreachable!(),
-                }
-            }
-            Statement::MacroCall(macrocall) => {
-                let res = self.generate_macro_call(macrocall)?;
-                Ok(res)
-            }
+            Statement::Define(_) => Ok(String::new()),
+            Statement::AstStmt(ast) => self.generate_ast_stmt(ast),
+            Statement::MacroCall(macrocall) => self.generate_macro_call(macrocall),
             Statement::Label(lbl) => {
                 if !self.uuid_stack.is_empty() {
                     self.generate_label_preprocess(lbl)?;
@@ -496,165 +379,150 @@ impl Codegen {
         let mnemonic = &ast.mnemonic.0.kind;
         let operands = &ast.operands;
         let span = &ast.mnemonic.0.span;
-        let machine_code;
-
-        match mnemonic {
+        let machine_code = match mnemonic {
             TokenKind::Mnemonic(mnemonic) => match mnemonic {
-                Mnemonic::Define => unreachable!(),
                 Mnemonic::Nop => {
-                    self.check_stmt_operands(span, operands, &[])?;
-                    machine_code = 0;
+                    if !operands.is_empty() {
+                        eval_err!(span, "expected 0 operands, got {}", operands.len());
+                    }
+                    0
                 }
                 Mnemonic::Hlt => {
-                    self.check_stmt_operands(span, operands, &[])?;
-                    machine_code = 1 << 12;
+                    if !operands.is_empty() {
+                        eval_err!(span, "expected 0 operands, got {}", operands.len());
+                    }
+                    1 << 12
                 }
                 Mnemonic::Add => {
-                    self.check_stmt_operands(
-                        span,
-                        operands,
-                        &[&["register"], &["register"], &["register"]],
-                    )?;
-                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
-                    let rs = self.generate_stmt_operand(&operands[1], 4)?;
-                    let rt = self.generate_stmt_operand(&operands[2], 4)?;
-                    machine_code = 2 << 12 | (rd << 8) | (rs << 4) | rt;
+                    if operands.len() != 3 {
+                        eval_err!(span, "expected 3 operands, got {}", operands.len());
+                    }
+                    let rd = self.eval_expression(&operands[0], 4)?;
+                    let rs = self.eval_expression(&operands[1], 4)?;
+                    let rt = self.eval_expression(&operands[2], 4)?;
+                    2 << 12 | (rd << 8) | (rs << 4) | rt
                 }
                 Mnemonic::Sub => {
-                    self.check_stmt_operands(
-                        span,
-                        operands,
-                        &[&["register"], &["register"], &["register"]],
-                    )?;
-                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
-                    let rs = self.generate_stmt_operand(&operands[1], 4)?;
-                    let rt = self.generate_stmt_operand(&operands[2], 4)?;
-                    machine_code = 3 << 12 | (rd << 8) | (rs << 4) | rt;
+                    if operands.len() != 3 {
+                        eval_err!(span, "expected 3 operands, got {}", operands.len());
+                    }
+                    let rd = self.eval_expression(&operands[0], 4)?;
+                    let rs = self.eval_expression(&operands[1], 4)?;
+                    let rt = self.eval_expression(&operands[2], 4)?;
+                    3 << 12 | (rd << 8) | (rs << 4) | rt
                 }
                 Mnemonic::Nor => {
-                    self.check_stmt_operands(
-                        span,
-                        operands,
-                        &[&["register"], &["register"], &["register"]],
-                    )?;
-                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
-                    let rs = self.generate_stmt_operand(&operands[1], 4)?;
-                    let rt = self.generate_stmt_operand(&operands[2], 4)?;
-                    machine_code = 4 << 12 | (rd << 8) | (rs << 4) | rt;
+                    if operands.len() != 3 {
+                        eval_err!(span, "expected 3 operands, got {}", operands.len());
+                    }
+                    let rd = self.eval_expression(&operands[0], 4)?;
+                    let rs = self.eval_expression(&operands[1], 4)?;
+                    let rt = self.eval_expression(&operands[2], 4)?;
+                    4 << 12 | (rd << 8) | (rs << 4) | rt
                 }
                 Mnemonic::And => {
-                    self.check_stmt_operands(
-                        span,
-                        operands,
-                        &[&["register"], &["register"], &["register"]],
-                    )?;
-                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
-                    let rs = self.generate_stmt_operand(&operands[1], 4)?;
-                    let rt = self.generate_stmt_operand(&operands[2], 4)?;
-                    machine_code = 5 << 12 | (rd << 8) | (rs << 4) | rt;
+                    if operands.len() != 3 {
+                        eval_err!(span, "expected 3 operands, got {}", operands.len());
+                    }
+                    let rd = self.eval_expression(&operands[0], 4)?;
+                    let rs = self.eval_expression(&operands[1], 4)?;
+                    let rt = self.eval_expression(&operands[2], 4)?;
+                    5 << 12 | (rd << 8) | (rs << 4) | rt
                 }
                 Mnemonic::Xor => {
-                    self.check_stmt_operands(
-                        span,
-                        operands,
-                        &[&["register"], &["register"], &["register"]],
-                    )?;
-                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
-                    let rs = self.generate_stmt_operand(&operands[1], 4)?;
-                    let rt = self.generate_stmt_operand(&operands[2], 4)?;
-                    machine_code = 6 << 12 | (rd << 8) | (rs << 4) | rt;
+                    if operands.len() != 3 {
+                        eval_err!(span, "expected 3 operands, got {}", operands.len());
+                    }
+                    let rd = self.eval_expression(&operands[0], 4)?;
+                    let rs = self.eval_expression(&operands[1], 4)?;
+                    let rt = self.eval_expression(&operands[2], 4)?;
+                    6 << 12 | (rd << 8) | (rs << 4) | rt
                 }
                 Mnemonic::Rsh => {
-                    self.check_stmt_operands(span, operands, &[&["register"], &["register"]])?;
-                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
-                    let rs = self.generate_stmt_operand(&operands[1], 4)?;
-                    machine_code = 7 << 12 | (rd << 8) | rs;
+                    if operands.len() != 2 {
+                        eval_err!(span, "expected 2 operands, got {}", operands.len());
+                    }
+                    let rd = self.eval_expression(&operands[0], 4)?;
+                    let rs = self.eval_expression(&operands[1], 4)?;
+                    7 << 12 | (rd << 8) | rs
                 }
                 Mnemonic::Ldi => {
-                    self.check_stmt_operands(span, operands, &[&["register"], &["int"]])?;
-                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
-                    let imm = self.generate_stmt_operand(&operands[1], 8)?;
+                    if operands.len() != 2 {
+                        eval_err!(span, "expected 2 operands, got {}", operands.len());
+                    }
+                    let rd = self.eval_expression(&operands[0], 4)?;
+                    let imm = self.eval_expression(&operands[1], 8)?;
                     if !(-128..=255).contains(&imm) {
                         eval_err!(span, "immediate value {} out of range [-128, 255]", imm);
                     }
-                    machine_code = 8 << 12 | (rd << 8) | imm;
+                    8 << 12 | (rd << 8) | imm
                 }
                 Mnemonic::Adi => {
-                    self.check_stmt_operands(span, operands, &[&["register"], &["int"]])?;
-                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
-                    let imm = self.generate_stmt_operand(&operands[1], 8)?;
+                    if operands.len() != 2 {
+                        eval_err!(span, "expected 2 operands, got {}", operands.len());
+                    }
+                    let rd = self.eval_expression(&operands[0], 4)?;
+                    let imm = self.eval_expression(&operands[1], 8)?;
                     if !(-128..=255).contains(&imm) {
                         eval_err!(span, "immediate value {} out of range [-128, 255]", imm);
                     }
-                    machine_code = 9 << 12 | (rd << 8) | imm;
+                    9 << 12 | (rd << 8) | imm
                 }
                 Mnemonic::Jmp => {
-                    self.check_stmt_operands(span, operands, &[&["int"]])?;
-                    let addr = self.generate_stmt_operand(&operands[0], 10)?;
+                    if operands.len() != 1 {
+                        eval_err!(span, "expected 1 operands, got {}", operands.len());
+                    }
+                    let addr = self.eval_expression(&operands[0], 10)?;
                     if addr != (addr % 1024) {
                         eval_err!(span, "jump address {} out of range [0, 1023]", addr);
                     }
-                    machine_code = 10 << 12 | addr;
+                    10 << 12 | addr
                 }
                 Mnemonic::Brh => {
-                    self.check_stmt_operands(span, operands, &[&["int"], &["int"]])?;
-                    let cond = self.generate_stmt_operand(&operands[0], 2)?;
-                    let addr = self.generate_stmt_operand(&operands[1], 10)?;
+                    if operands.len() != 2 {
+                        eval_err!(span, "expected 2 operands, got {}", operands.len());
+                    }
+                    let cond = self.eval_expression(&operands[0], 2)?;
+                    let addr = self.eval_expression(&operands[1], 10)?;
                     if addr != (addr % 1024) {
                         eval_err!(span, "jump address {} out of range [0, 1023]", addr);
                     }
-                    machine_code = 11 << 12 | (cond << 10) | addr;
+                    11 << 12 | (cond << 10) | addr
                 }
                 Mnemonic::Cal => {
-                    self.check_stmt_operands(span, operands, &[&["int"]])?;
-                    let addr = self.generate_stmt_operand(&operands[0], 10)?;
-                    machine_code = 12 << 12 | addr;
+                    if operands.len() != 1 {
+                        eval_err!(span, "expected 1 operands, got {}", operands.len());
+                    }
+                    let addr = self.eval_expression(&operands[0], 10)?;
+                    12 << 12 | addr
                 }
                 Mnemonic::Ret => {
-                    self.check_stmt_operands(span, operands, &[])?;
-                    machine_code = 13 << 12;
+                    if !operands.is_empty() {
+                        eval_err!(span, "expected 0 operands, got {}", operands.len());
+                    }
+                    13 << 12
                 }
                 Mnemonic::Lod => {
-                    if operands.len() == 2 {
-                        self.check_stmt_operands(span, operands, &[&["register"], &["register"]])?;
-                    } else {
-                        self.check_stmt_operands(
-                            span,
-                            operands,
-                            &[&["register"], &["register"], &["int"]],
-                        )?;
+                    if !(2..=3).contains(&operands.len()) {
+                        eval_err!(span, "expected 2 or 3 operands, got {}", operands.len());
                     }
-                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
-                    let rs = self.generate_stmt_operand(&operands[1], 4)?;
+                    let rd = self.eval_expression(&operands[0], 4)?;
+                    let rs = self.eval_expression(&operands[1], 4)?;
                     let offset = if operands.len() == 3 {
-                        self.generate_stmt_operand(&operands[2], 4)?
+                        self.eval_expression(&operands[2], 4)?
                     } else {
                         0
                     };
-                    let mut masked = offset & 0b1111;
-                    println!("masked: {}", masked);
-                    if masked & 0b1000 != 0 {
-                        masked -= 16;
-                    }
-                    if !(-8..=7).contains(&masked) {
-                        eval_err!(span, "offset value {} out of range [-8, 7]", masked);
-                    }
-                    machine_code = 14 << 12 | (rd << 8) | (rs << 4) | offset;
+                    14 << 12 | (rd << 8) | (rs << 4) | offset
                 }
                 Mnemonic::Str => {
-                    if operands.len() == 2 {
-                        self.check_stmt_operands(span, operands, &[&["register"], &["register"]])?;
-                    } else {
-                        self.check_stmt_operands(
-                            span,
-                            operands,
-                            &[&["register"], &["register"], &["int"]],
-                        )?;
+                    if !(2..=3).contains(&operands.len()) {
+                        eval_err!(span, "expected 2 or 3 operands, got {}", operands.len());
                     }
-                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
-                    let rs = self.generate_stmt_operand(&operands[1], 4)?;
+                    let rd = self.eval_expression(&operands[0], 4)?;
+                    let rs = self.eval_expression(&operands[1], 4)?;
                     let offset = if operands.len() == 3 {
-                        self.generate_stmt_operand(&operands[2], 4)?
+                        self.eval_expression(&operands[2], 4)?
                     } else {
                         0
                     };
@@ -665,110 +533,58 @@ impl Codegen {
                     if !(-8..=7).contains(&masked) {
                         eval_err!(span, "offset value {} out of range [-8, 7]", masked);
                     }
-                    machine_code = 15 << 12 | (rd << 8) | (rs << 4) | offset;
+                    15 << 12 | (rd << 8) | (rs << 4) | offset
                 }
                 Mnemonic::Cmp => {
-                    self.check_stmt_operands(span, operands, &[&["register"], &["register"]])?;
-                    let rs = self.generate_stmt_operand(&operands[0], 4)?;
-                    let rt = self.generate_stmt_operand(&operands[1], 4)?;
-                    machine_code = 3 << 12 | (rs << 8) | (rt << 4);
+                    if operands.len() != 2 {
+                        eval_err!(span, "expected 2 operands, got {}", operands.len());
+                    }
+                    let rs = self.eval_expression(&operands[0], 4)?;
+                    let rt = self.eval_expression(&operands[1], 4)?;
+                    3 << 12 | (rs << 8) | (rt << 4)
                 }
                 Mnemonic::Mov => {
-                    self.check_stmt_operands(span, operands, &[&["register"], &["register"]])?;
-                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
-                    let rs = self.generate_stmt_operand(&operands[1], 4)?;
-                    machine_code = 2 << 12 | (rd << 8) | rs;
+                    if operands.len() != 2 {
+                        eval_err!(span, "expected 2 operands, got {}", operands.len());
+                    }
+                    let rd = self.eval_expression(&operands[0], 4)?;
+                    let rs = self.eval_expression(&operands[1], 4)?;
+                    2 << 12 | (rd << 8) | rs
                 }
                 Mnemonic::Lsh => {
-                    self.check_stmt_operands(span, operands, &[&["register"], &["register"]])?;
-                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
-                    let rs = self.generate_stmt_operand(&operands[1], 4)?;
-                    machine_code = 2 << 12 | (rd << 8) | (rd << 4) | rs;
+                    if operands.len() != 2 {
+                        eval_err!(span, "expected 2 operands, got {}", operands.len());
+                    }
+                    let rd = self.eval_expression(&operands[0], 4)?;
+                    let rs = self.eval_expression(&operands[1], 4)?;
+                    2 << 12 | (rd << 8) | (rd << 4) | rs
                 }
                 Mnemonic::Inc => {
-                    self.check_stmt_operands(span, operands, &[&["register"]])?;
-                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
-                    machine_code = 9 << 12 | (rd << 8) | 1;
+                    if operands.len() != 1 {
+                        eval_err!(span, "expected 1 operands, got {}", operands.len());
+                    }
+                    let rd = self.eval_expression(&operands[0], 4)?;
+                    9 << 12 | (rd << 8) | 1
                 }
                 Mnemonic::Dec => {
-                    self.check_stmt_operands(span, operands, &[&["register"]])?;
-                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
-                    machine_code = 9 << 12 | (rd << 8) | 0xff;
+                    if operands.len() != 1 {
+                        eval_err!(span, "expected 1 operands, got {}", operands.len());
+                    }
+                    let rd = self.eval_expression(&operands[0], 4)?;
+                    9 << 12 | (rd << 8) | 0xff
                 }
                 Mnemonic::Not => {
-                    self.check_stmt_operands(span, operands, &[&["register"], &["register"]])?;
-                    let rd = self.generate_stmt_operand(&operands[0], 4)?;
-                    let rs = self.generate_stmt_operand(&operands[1], 4)?;
-                    machine_code = 4 << 12 | (rd << 8) | rs;
+                    if operands.len() != 2 {
+                        eval_err!(span, "expected 2 operands, got {}", operands.len());
+                    }
+                    let rd = self.eval_expression(&operands[0], 4)?;
+                    let rs = self.eval_expression(&operands[1], 4)?;
+                    4 << 12 | (rd << 8) | rs
                 }
             },
             _ => unreachable!(),
-        }
+        };
 
         Ok(format!("{:016b}\n", machine_code))
-    }
-
-    fn generate_stmt_operand(&mut self, operand: &AstStmtOperand, bits: u32) -> Result<i64, Error> {
-        Ok(match operand {
-            AstStmtOperand::Register(r) => match r.0.kind {
-                TokenKind::Register(reg) => reg.number as i64,
-                _ => unreachable!(),
-            },
-            AstStmtOperand::Label(l) => match &l.0.kind {
-                TokenKind::Label(label) => {
-                    let mut name = label.name.clone();
-                    if let Some(uuid) = self.uuid_stack.last() {
-                        name.insert_str(0, &format!("_{}_", uuid));
-                    } else {
-                        name.insert_str(0, "__");
-                    }
-                    let value = self.labels_table.get(&name);
-                    *value
-                        .or_else(|| self.labels_table.get(&format!("__{}", &label.name)))
-                        .ok_or_else(|| log_error!(l.0.span, "undefined label '{}'", label.name))?
-                        as i64
-                }
-                _ => unreachable!(),
-            },
-            AstStmtOperand::Int(i) => match i.0.kind {
-                TokenKind::Int(int) => int as i64,
-                _ => unreachable!(),
-            },
-            AstStmtOperand::Identifier(ident) => match &ident.0.kind {
-                TokenKind::Identifier(i) => {
-                    let value = self.symbol_table.get(&i.to_lowercase());
-                    let value = value
-                        .ok_or_else(|| log_error!(ident.0.span, "undefined identifier '{}'", i))?;
-                    self.check_stmt_operand(&ident.0.span, value, &["int", "char"])?;
-                    match value {
-                        StmtValue::Int(int) => *int,
-                        StmtValue::Char(c) => *c as i64,
-                    }
-                }
-                _ => unreachable!(),
-            },
-            AstStmtOperand::Char(c) => match c.0.kind {
-                TokenKind::Char(char) => char.value as i64,
-                _ => unreachable!(),
-            },
-            AstStmtOperand::MacroExpression(macroexpr) => {
-                let name = match &macroexpr.0.kind {
-                    TokenKind::MacroExpression(m) => &m.name,
-                    _ => unreachable!(),
-                };
-                let mut value;
-                for macro_def in self.current_macro_defs.iter().rev() {
-                    value = macro_def.get(name);
-                    if let Some(value) = value {
-                        self.check_stmt_operand(&macroexpr.0.span, value, &["int", "char"])?;
-                        match value {
-                            StmtValue::Int(int) => return Ok(*int & (2i64.pow(bits) - 1)),
-                            StmtValue::Char(c) => return Ok(*c as i64 & (2i64.pow(bits) - 1)),
-                        }
-                    }
-                }
-                eval_err!(macroexpr.0.span, "undefined macro expression '{}'", name);
-            }
-        } & (2i64.pow(bits) - 1))
     }
 }
