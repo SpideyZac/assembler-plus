@@ -15,7 +15,7 @@ str r2 r1 0
 %WRITE_CHAR 5
 ```
 
-## Conditional ASM 🟡
+## Conditional ASM 🟢
 Conditional ASM allows you to include or exclude certain code blocks if a user defined condition is met
 
 ```asm
@@ -69,3 +69,5 @@ cargo build --release
 
 ## Download
 Soon!
+
+## Special Thanks to NoName_Official!

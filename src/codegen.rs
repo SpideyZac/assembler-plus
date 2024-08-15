@@ -72,6 +72,10 @@ impl Codegen {
         res.symbol_table.insert("ne".to_string(), 1);
         res.symbol_table.insert("ge".to_string(), 2);
         res.symbol_table.insert("lt".to_string(), 3);
+        res.symbol_table.insert("=".to_string(), 0);
+        res.symbol_table.insert("!=".to_string(), 1);
+        res.symbol_table.insert(">=".to_string(), 2);
+        res.symbol_table.insert("<".to_string(), 3);
         res.symbol_table.insert("z".to_string(), 0);
         res.symbol_table.insert("nz".to_string(), 1);
         res.symbol_table.insert("c".to_string(), 2);
@@ -272,6 +276,33 @@ impl Codegen {
         Ok(())
     }
 
+    fn count_macro_call(&self, macrocall: &MacroCall) -> Result<u64, Error> {
+        let name = match &macrocall.name.0.kind {
+            TokenKind::MacroCall(m) => &m.name,
+            _ => unreachable!(),
+        };
+        let m = self.macros.get(name);
+        let m = m.ok_or_else(|| log_error!(macrocall.name.0.span, "undefined macro '{}'", name))?;
+        if m.args.len() != macrocall.args.len() {
+            eval_err!(
+                macrocall.name.0.span,
+                "macro '{}' expects {} arguments, got {}",
+                name,
+                m.args.len(),
+                macrocall.args.len()
+            );
+        }
+
+        let mut len = 0;
+        for stmt in m.body.iter() {
+            match stmt {
+                Statement::AstStmt(_) | Statement::MacroCall(_) => len += 1,
+                _ => {}
+            }
+        }
+        Ok(len)
+    }
+
     fn generate_macro_call(&mut self, macrocall: &MacroCall) -> Result<String, Error> {
         let name = match &macrocall.name.0.kind {
             TokenKind::MacroCall(m) => &m.name,
@@ -290,16 +321,17 @@ impl Codegen {
         }
 
         let prelabels = self.labels_table.clone();
+        let mut len = 0;
+        for stmt in m.body.iter() {
+            match stmt {
+                Statement::AstStmt(_) => len += 1,
+                Statement::MacroCall(m) => len += self.count_macro_call(m)?,
+                _ => {}
+            }
+        }
         for (k, _) in prelabels.iter() {
             let v = self.labels_table.get(k).unwrap();
             if *v >= self.instruction_pointer {
-                let mut len = 0;
-                for stmt in m.body.iter() {
-                    match stmt {
-                        Statement::AstStmt(_) | Statement::MacroCall(_) => len += 1,
-                        _ => {}
-                    }
-                }
                 self.labels_table
                     .entry(k.clone())
                     .and_modify(|e| *e += len as u64);
@@ -378,6 +410,7 @@ impl Codegen {
         let mnemonic = &ast.mnemonic.0.kind;
         let operands = &ast.operands;
         let span = &ast.mnemonic.0.span;
+        self.instruction_pointer += 1;
         let machine_code = match mnemonic {
             TokenKind::Mnemonic(mnemonic) => match mnemonic {
                 Mnemonic::Nop => {

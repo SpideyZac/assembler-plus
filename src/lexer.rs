@@ -95,8 +95,6 @@ pub enum TokenKind {
     Label(Label),
     #[regex(r"(?i)-?[0-9]|-?[1-9][0-9]+|0b[01]+|0x[0-9a-f]+|0o[0-7]+", signed_int_literal)]
     Int(i16),
-    #[regex(r"[a-zA-Z_~|]\S*")]
-    Identifier(String),
     #[regex(r#"'.'|".""#)]
     Char(Char),
     #[regex(r#""([^\x00-\x1f"\\]|\\(["\\/bfnrt]|u[0-9a-fA-F]{4}))*""#, str_lit)]
@@ -118,6 +116,9 @@ pub enum TokenKind {
     MacroCall(MacroCall),
     #[regex(r"\$[a-zA-Z_~|]\S*")]
     MacroExpression(MacroExpression),
+
+    #[regex(r"\S+")]
+    Identifier(String),
 
     #[eof]
     Eof,
