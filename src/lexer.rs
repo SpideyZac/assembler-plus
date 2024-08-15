@@ -53,7 +53,41 @@ pub enum TokenKind {
     #[regex(r"\n")]
     Newline,
 
-    #[regex(r"(?i)define|nop|hlt|add|sub|nor|and|xor|rsh|ldi|adi|jmp|brh|cal|ret|lod|str|cmp|mov|lsh|inc|dec|not")]
+    #[regex(r"\+")]
+    Plus,
+    #[regex(r"-")]
+    Minus,
+    #[regex(r"\*")]
+    Mult,
+    #[regex(r"/")]
+    Div,
+    #[regex(r"~")]
+    Not,
+    #[regex(r"&")]
+    And,
+    #[regex(r"\|")]
+    Or,
+    #[regex(r"==")]
+    Eq,
+    #[regex(r"!=")]
+    Ne,
+    #[regex(r">=")]
+    Ge,
+    #[regex(r">")]
+    Gt,
+    #[regex(r"<=")]
+    Le,
+    #[regex(r"<")]
+    Lt,
+    #[regex(r"\(")]
+    LeftParen,
+    #[regex(r"\)")]
+    RightParen,
+
+    #[regex(r"(?i)define")]
+    Define,
+
+    #[regex(r"(?i)nop|hlt|add|sub|nor|and|xor|rsh|ldi|adi|jmp|brh|cal|ret|lod|str|cmp|mov|lsh|inc|dec|not")]
     Mnemonic(Mnemonic),
     #[regex(r"r\d+")]
     Register(Register),
@@ -199,7 +233,6 @@ impl fmt::Display for Label {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Mnemonic {
-    Define,
     Nop,
     Hlt,
     Add,
@@ -229,7 +262,6 @@ impl FromStr for Mnemonic {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "define" => Ok(Mnemonic::Define),
             "nop" => Ok(Mnemonic::Nop),
             "hlt" => Ok(Mnemonic::Hlt),
             "add" => Ok(Mnemonic::Add),
@@ -260,7 +292,6 @@ impl FromStr for Mnemonic {
 impl fmt::Display for Mnemonic {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Mnemonic::Define => write!(f, "define"),
             Mnemonic::Nop => write!(f, "nop"),
             Mnemonic::Hlt => write!(f, "hlt"),
             Mnemonic::Add => write!(f, "add"),
