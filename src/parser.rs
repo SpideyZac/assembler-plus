@@ -20,8 +20,6 @@ token_ast! {
         [ifdefmacro] => { kind: TokenKind::IfDefMacro, prompt: "ifdef macro" },
         [endif] => { kind: TokenKind::EndIfMacro, prompt: "endif macro" },
         [maccall] => { kind: TokenKind::MacroCall(_), prompt: "macro call" },
-        [macexprreg] => { kind: TokenKind::MacroExpressionRegister, prompt: "macro expression register" },
-        [macexprmem] => { kind: TokenKind::MacroExpressionMemory, prompt: "macro expression memory" },
         [macexpr] => { kind: TokenKind::MacroExpression(_), prompt: "macro expression" },
 
         [eof] => { kind: TokenKind::Eof, prompt: "end of file" },
@@ -76,8 +74,6 @@ pub enum AstStmtOperand {
     Int(Token![int]),
     Identifier(Token![ident]),
     Char(Token![chr]),
-    MacroExpressionRegister(MacroExpressionRegister),
-    MacroExpressionMemory(MacroExpressionMemory),
     MacroExpression(Token![macexpr]),
 }
 
@@ -98,18 +94,4 @@ pub struct MacroDefinition {
     pub body: Vec<Statement>,
     _end: Token![endmac],
     _nl: Token![nl],
-}
-
-#[derive(Parse, Debug, Clone, PartialEq)]
-#[token(Token)]
-pub struct MacroExpressionRegister {
-    _mac_expr_reg: Token![macexprreg],
-    pub reg: Token![register],
-}
-
-#[derive(Parse, Debug, Clone, PartialEq)]
-#[token(Token)]
-pub struct MacroExpressionMemory {
-    _mac_expr_mem: Token![macexprmem],
-    pub mem: Token![int],
 }
