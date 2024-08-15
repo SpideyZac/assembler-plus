@@ -38,7 +38,7 @@ The include files feature allows you to import another file into your code.
 cal .abc123
 ```
 
-## Compile time arithmatic 🔴
+## Compile time arithmatic 🟡
 Compile time arithmatic allows you to perform arithmatic on compile time known values (constants, registers with known values, memory slots with known values, etc.)
 
 ```asm

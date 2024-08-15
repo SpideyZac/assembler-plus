@@ -78,6 +78,10 @@ pub enum TokenKind {
     EndIfMacro,
     #[regex(r"%[a-zA-Z_][a-zA-Z0-9_]*")]
     MacroCall(MacroCall),
+    #[regex(r"\$reg")]
+    MacroExpressionRegister,
+    #[regex(r"\$mem")]
+    MacroExpressionMemory,
     #[regex(r"\$[a-zA-Z_][a-zA-Z0-9_]*")]
     MacroExpression(MacroExpression),
 

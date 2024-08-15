@@ -38,6 +38,8 @@ pub struct Codegen {
     current_macro_defs: Vec<HashMap<String, StmtValue>>,
     next_macro_uuid: u64,
     uuid_stack: Vec<u64>,
+    register_values: HashMap<u64, Option<i64>>,
+    memory_values: HashMap<u64, Option<i64>>,
 }
 
 impl Codegen {
@@ -51,7 +53,21 @@ impl Codegen {
             current_macro_defs: Vec::new(),
             next_macro_uuid: 0,
             uuid_stack: Vec::new(),
+            register_values: HashMap::new(),
+            memory_values: HashMap::new(),
         };
+
+        for i in 0..16 {
+            res.register_values.insert(i, Some(0));
+        }
+
+        for i in 0..256 {
+            if i < 240 {
+                res.memory_values.insert(i, Some(0));
+            } else {
+                res.memory_values.insert(i, None);
+            }
+        }
 
         res.symbol_table.insert("eq".to_string(), StmtValue::Int(0));
         res.symbol_table.insert("ne".to_string(), StmtValue::Int(1));
@@ -321,6 +337,30 @@ impl Codegen {
                         }
                     }
                 }
+                AstStmtOperand::MacroExpressionRegister(macroexprreg) => {
+                    if !expected.contains(&"int") {
+                        eval_err!(
+                            macroexprreg.reg.0.span.clone(),
+                            "{}",
+                            format!(
+                                "expected {}, got macro expression register",
+                                expected.join(" or ")
+                            )
+                        );
+                    }
+                }
+                AstStmtOperand::MacroExpressionMemory(macroexprmem) => {
+                    if !expected.contains(&"int") {
+                        eval_err!(
+                            macroexprmem.mem.0.span.clone(),
+                            "{}",
+                            format!(
+                                "expected {}, got macro expression memory",
+                                expected.join(" or ")
+                            )
+                        );
+                    }
+                }
             }
         }
 
@@ -422,6 +462,42 @@ impl Codegen {
                         log_error!(macroexpr.0.span, "undefined macro expression '{}'", name)
                     })?
                 }
+                AstStmtOperand::MacroExpressionRegister(macroexprreg) => {
+                    let register = match &macroexprreg.reg.0.kind {
+                        TokenKind::Register(r) => r.number,
+                        _ => unreachable!(),
+                    };
+                    let value = self.register_values.get(&(register as u64));
+                    let value = value.ok_or_else(|| {
+                        log_error!(macroexprreg.reg.0.span, "undefined register '{}'", register)
+                    })?;
+                    let value = value.ok_or_else(|| {
+                        log_error!(
+                            macroexprreg.reg.0.span,
+                            "register '{}' is unknown at compile time",
+                            register
+                        )
+                    })?;
+                    StmtValue::Int(value)
+                }
+                AstStmtOperand::MacroExpressionMemory(macroexprmem) => {
+                    let memory = match &macroexprmem.mem.0.kind {
+                        TokenKind::Int(i) => i,
+                        _ => unreachable!(),
+                    };
+                    let value = self.memory_values.get(&(*memory as u64));
+                    let value = value.ok_or_else(|| {
+                        log_error!(macroexprmem.mem.0.span, "undefined memory '{}'", memory)
+                    })?;
+                    let value = value.ok_or_else(|| {
+                        log_error!(
+                            macroexprmem.mem.0.span,
+                            "memory slot '{}' is unknown at compile time",
+                            memory
+                        )
+                    })?;
+                    StmtValue::Int(value)
+                }
             };
             if macro_def.contains_key(arg) {
                 eval_err!(macrocall.name.0.span, "redefinition of argument '{}'", arg);
@@ -519,6 +595,18 @@ impl Codegen {
                     let rs = self.generate_stmt_operand(&operands[1], 4)?;
                     let rt = self.generate_stmt_operand(&operands[2], 4)?;
                     machine_code = 2 << 12 | (rd << 8) | (rs << 4) | rt;
+
+                    let ra = self.register_values.get(&(rd as u64)).unwrap();
+                    let rb = self.register_values.get(&(rs as u64)).unwrap();
+                    if let Some(ra) = ra {
+                        if let Some(rb) = rb {
+                            self.register_values.insert(rt as u64, Some(*ra + *rb));
+                        } else {
+                            self.register_values.insert(rt as u64, None);
+                        }
+                    } else {
+                        self.register_values.insert(rt as u64, None);
+                    }
                 }
                 Mnemonic::Sub => {
                     self.check_stmt_operands(
@@ -530,6 +618,18 @@ impl Codegen {
                     let rs = self.generate_stmt_operand(&operands[1], 4)?;
                     let rt = self.generate_stmt_operand(&operands[2], 4)?;
                     machine_code = 3 << 12 | (rd << 8) | (rs << 4) | rt;
+
+                    let ra = self.register_values.get(&(rd as u64)).unwrap();
+                    let rb = self.register_values.get(&(rs as u64)).unwrap();
+                    if let Some(ra) = ra {
+                        if let Some(rb) = rb {
+                            self.register_values.insert(rt as u64, Some(*ra - *rb));
+                        } else {
+                            self.register_values.insert(rt as u64, None);
+                        }
+                    } else {
+                        self.register_values.insert(rt as u64, None);
+                    }
                 }
                 Mnemonic::Nor => {
                     self.check_stmt_operands(
@@ -541,6 +641,18 @@ impl Codegen {
                     let rs = self.generate_stmt_operand(&operands[1], 4)?;
                     let rt = self.generate_stmt_operand(&operands[2], 4)?;
                     machine_code = 4 << 12 | (rd << 8) | (rs << 4) | rt;
+
+                    let ra = self.register_values.get(&(rd as u64)).unwrap();
+                    let rb = self.register_values.get(&(rs as u64)).unwrap();
+                    if let Some(ra) = ra {
+                        if let Some(rb) = rb {
+                            self.register_values.insert(rt as u64, Some(!(*ra | *rb)));
+                        } else {
+                            self.register_values.insert(rt as u64, None);
+                        }
+                    } else {
+                        self.register_values.insert(rt as u64, None);
+                    }
                 }
                 Mnemonic::And => {
                     self.check_stmt_operands(
@@ -552,6 +664,18 @@ impl Codegen {
                     let rs = self.generate_stmt_operand(&operands[1], 4)?;
                     let rt = self.generate_stmt_operand(&operands[2], 4)?;
                     machine_code = 5 << 12 | (rd << 8) | (rs << 4) | rt;
+
+                    let ra = self.register_values.get(&(rd as u64)).unwrap();
+                    let rb = self.register_values.get(&(rs as u64)).unwrap();
+                    if let Some(ra) = ra {
+                        if let Some(rb) = rb {
+                            self.register_values.insert(rt as u64, Some(*ra & *rb));
+                        } else {
+                            self.register_values.insert(rt as u64, None);
+                        }
+                    } else {
+                        self.register_values.insert(rt as u64, None);
+                    }
                 }
                 Mnemonic::Xor => {
                     self.check_stmt_operands(
@@ -563,12 +687,31 @@ impl Codegen {
                     let rs = self.generate_stmt_operand(&operands[1], 4)?;
                     let rt = self.generate_stmt_operand(&operands[2], 4)?;
                     machine_code = 6 << 12 | (rd << 8) | (rs << 4) | rt;
+
+                    let ra = self.register_values.get(&(rd as u64)).unwrap();
+                    let rb = self.register_values.get(&(rs as u64)).unwrap();
+                    if let Some(ra) = ra {
+                        if let Some(rb) = rb {
+                            self.register_values.insert(rt as u64, Some(*ra ^ *rb));
+                        } else {
+                            self.register_values.insert(rt as u64, None);
+                        }
+                    } else {
+                        self.register_values.insert(rt as u64, None);
+                    }
                 }
                 Mnemonic::Rsh => {
                     self.check_stmt_operands(span, operands, &[&["register"], &["register"]])?;
                     let rd = self.generate_stmt_operand(&operands[0], 4)?;
                     let rs = self.generate_stmt_operand(&operands[1], 4)?;
                     machine_code = 7 << 12 | (rd << 8) | rs;
+
+                    let ra = self.register_values.get(&(rd as u64)).unwrap();
+                    if let Some(ra) = ra {
+                        self.register_values.insert(rs as u64, Some(*ra >> 1));
+                    } else {
+                        self.register_values.insert(rs as u64, None);
+                    }
                 }
                 Mnemonic::Ldi => {
                     self.check_stmt_operands(span, operands, &[&["register"], &["int"]])?;
@@ -578,6 +721,8 @@ impl Codegen {
                         eval_err!(span, "immediate value {} out of range [-128, 255]", imm);
                     }
                     machine_code = 8 << 12 | (rd << 8) | imm;
+
+                    self.register_values.insert(rd as u64, Some(imm));
                 }
                 Mnemonic::Adi => {
                     self.check_stmt_operands(span, operands, &[&["register"], &["int"]])?;
@@ -587,6 +732,13 @@ impl Codegen {
                         eval_err!(span, "immediate value {} out of range [-128, 255]", imm);
                     }
                     machine_code = 9 << 12 | (rd << 8) | imm;
+
+                    let ra = self.register_values.get(&(rd as u64)).unwrap();
+                    if let Some(ra) = ra {
+                        self.register_values.insert(rd as u64, Some(*ra + imm));
+                    } else {
+                        self.register_values.insert(rd as u64, None);
+                    }
                 }
                 Mnemonic::Jmp => {
                     self.check_stmt_operands(span, operands, &[&["int"]])?;
@@ -635,6 +787,23 @@ impl Codegen {
                         eval_err!(span, "offset value {} out of range [-8, 7]", offset);
                     }
                     machine_code = 14 << 12 | (rd << 8) | (rs << 4) | offset;
+
+                    let ra = self.register_values.get(&(rd as u64)).unwrap();
+                    if let Some(ra) = ra {
+                        let addr = *ra + offset;
+                        if addr < 240 {
+                            let value = self.memory_values.get(&(addr as u64)).unwrap();
+                            if let Some(value) = value {
+                                self.register_values.insert(rs as u64, Some(*value));
+                            } else {
+                                self.register_values.insert(rs as u64, None);
+                            }
+                        } else {
+                            self.register_values.insert(rs as u64, None);
+                        }
+                    } else {
+                        self.register_values.insert(rs as u64, None);
+                    }
                 }
                 Mnemonic::Str => {
                     if operands.len() == 2 {
@@ -657,6 +826,24 @@ impl Codegen {
                         eval_err!(span, "offset value {} out of range [-8, 7]", offset);
                     }
                     machine_code = 15 << 12 | (rd << 8) | (rs << 4) | offset;
+
+                    let ra = self.register_values.get(&(rd as u64)).unwrap();
+                    let rb = self.register_values.get(&(rs as u64)).unwrap();
+                    if let Some(ra) = ra {
+                        if let Some(rb) = rb {
+                            let addr = *ra + offset;
+                            if addr < 240 {
+                                self.memory_values.insert(addr as u64, Some(*rb));
+                            } else {
+                                self.memory_values.insert(addr as u64, None);
+                            }
+                        } else {
+                            let addr = *ra + offset;
+                            if addr < 240 {
+                                self.memory_values.insert(addr as u64, None);
+                            }
+                        }
+                    }
                 }
                 Mnemonic::Cmp => {
                     self.check_stmt_operands(span, operands, &[&["register"], &["register"]])?;
@@ -669,28 +856,63 @@ impl Codegen {
                     let rd = self.generate_stmt_operand(&operands[0], 4)?;
                     let rs = self.generate_stmt_operand(&operands[1], 4)?;
                     machine_code = 2 << 12 | (rd << 8) | rs;
+
+                    let ra = self.register_values.get(&(rd as u64)).unwrap();
+                    if let Some(ra) = ra {
+                        self.register_values.insert(rs as u64, Some(*ra));
+                    } else {
+                        self.register_values.insert(rs as u64, None);
+                    }
                 }
                 Mnemonic::Lsh => {
                     self.check_stmt_operands(span, operands, &[&["register"], &["register"]])?;
                     let rd = self.generate_stmt_operand(&operands[0], 4)?;
                     let rs = self.generate_stmt_operand(&operands[1], 4)?;
                     machine_code = 2 << 12 | (rd << 8) | (rd << 4) | rs;
+
+                    let ra = self.register_values.get(&(rd as u64)).unwrap();
+                    if let Some(ra) = ra {
+                        self.register_values.insert(rs as u64, Some(*ra << 1));
+                    } else {
+                        self.register_values.insert(rs as u64, None);
+                    }
                 }
                 Mnemonic::Inc => {
                     self.check_stmt_operands(span, operands, &[&["register"]])?;
                     let rd = self.generate_stmt_operand(&operands[0], 4)?;
                     machine_code = 9 << 12 | (rd << 8) | 1;
+
+                    let ra = self.register_values.get(&(rd as u64)).unwrap();
+                    if let Some(ra) = ra {
+                        self.register_values.insert(rd as u64, Some(*ra + 1));
+                    } else {
+                        self.register_values.insert(rd as u64, None);
+                    }
                 }
                 Mnemonic::Dec => {
                     self.check_stmt_operands(span, operands, &[&["register"]])?;
                     let rd = self.generate_stmt_operand(&operands[0], 4)?;
                     machine_code = 9 << 12 | (rd << 8) | 0xff;
+
+                    let ra = self.register_values.get(&(rd as u64)).unwrap();
+                    if let Some(ra) = ra {
+                        self.register_values.insert(rd as u64, Some(*ra - 1));
+                    } else {
+                        self.register_values.insert(rd as u64, None);
+                    }
                 }
                 Mnemonic::Not => {
                     self.check_stmt_operands(span, operands, &[&["register"], &["register"]])?;
                     let rd = self.generate_stmt_operand(&operands[0], 4)?;
                     let rs = self.generate_stmt_operand(&operands[1], 4)?;
                     machine_code = 4 << 12 | (rd << 8) | rs;
+
+                    let ra = self.register_values.get(&(rd as u64)).unwrap();
+                    if let Some(ra) = ra {
+                        self.register_values.insert(rs as u64, Some(!*ra));
+                    } else {
+                        self.register_values.insert(rs as u64, None);
+                    }
                 }
             },
             _ => unreachable!(),
@@ -759,6 +981,40 @@ impl Codegen {
                     }
                 }
                 eval_err!(macroexpr.0.span, "undefined macro expression '{}'", name);
+            }
+            AstStmtOperand::MacroExpressionRegister(macroexprreg) => {
+                let register = match &macroexprreg.reg.0.kind {
+                    TokenKind::Register(r) => r.number,
+                    _ => unreachable!(),
+                };
+                let value = self.register_values.get(&(register as u64));
+                let value = value.ok_or_else(|| {
+                    log_error!(macroexprreg.reg.0.span, "undefined register '{}'", register)
+                })?;
+                value.ok_or_else(|| {
+                    log_error!(
+                        macroexprreg.reg.0.span,
+                        "register '{}' is unknown at compile time",
+                        register
+                    )
+                })?
+            }
+            AstStmtOperand::MacroExpressionMemory(macroexprmem) => {
+                let memory = match &macroexprmem.mem.0.kind {
+                    TokenKind::Int(i) => i,
+                    _ => unreachable!(),
+                };
+                let value = self.memory_values.get(&(*memory as u64));
+                let value = value.ok_or_else(|| {
+                    log_error!(macroexprmem.mem.0.span, "undefined memory '{}'", memory)
+                })?;
+                value.ok_or_else(|| {
+                    log_error!(
+                        macroexprmem.mem.0.span,
+                        "memory slot '{}' is unknown at compile time",
+                        memory
+                    )
+                })?
             }
         } & (2i64.pow(bits) - 1))
     }
