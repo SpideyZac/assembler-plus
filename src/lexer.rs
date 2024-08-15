@@ -63,6 +63,8 @@ pub enum TokenKind {
     Int(i16),
     #[regex(r"[a-zA-Z_~|][a-zA-Z0-9_~|]*")]
     Identifier(String),
+    #[regex(r#"'.'|".""#)]
+    Char(Char),
     #[regex(r#""([^\x00-\x1f"\\]|\\(["\\/bfnrt]|u[0-9a-fA-F]{4}))*""#, str_lit)]
     RawString(RawString),
 
@@ -84,9 +86,6 @@ pub enum TokenKind {
     MacroExpressionMemory,
     #[regex(r"\$[a-zA-Z_][a-zA-Z0-9_]*")]
     MacroExpression(MacroExpression),
-
-    #[regex(r#"'.'|".""#)]
-    Char(Char),
 
     #[eof]
     Eof,
