@@ -6,18 +6,18 @@ spec = importlib.util.spec_from_file_location("assembler", "BatPU-2/assembler.py
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
-cases = os.listdir("./test")
+cases = os.listdir("./test/base")
 cases = [case for case in cases if case.endswith(".as")]
 passed = 0
 for i, case in enumerate(cases):
     try:
         print(f"Running test {i + 1}/{len(cases)}: {case}")
-        module.assemble(f"./test/{case}", f"./test/{case}.mc")
-        with open(f"./test/{case}.mc", "r") as f:
+        module.assemble(f"./test/base/{case}", f"./test/base/{case}.mc")
+        with open(f"./test/base/{case}.mc", "r") as f:
             expected = f.readlines()
         # run the cargo app
-        subprocess.run(["cargo", "run", "--", f"./test/{case}", f"./test/{case}.tmp.mc"])
-        with open(f"./test/{case}.tmp.mc", "r") as f:
+        subprocess.run(["cargo", "run", "--", f"./test/base/{case}", f"./test/base/{case}.tmp.mc"])
+        with open(f"./test/base/{case}.tmp.mc", "r") as f:
             actual = f.readlines()
         if expected == actual:
             passed += 1

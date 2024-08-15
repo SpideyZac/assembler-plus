@@ -89,11 +89,11 @@ pub enum TokenKind {
 
     #[regex(r"(?i)nop|hlt|add|sub|nor|and|xor|rsh|ldi|adi|jmp|brh|cal|ret|lod|str|cmp|mov|lsh|inc|dec|not")]
     Mnemonic(Mnemonic),
-    #[regex(r"r\d+")]
+    #[regex(r"(?i)r\d+")]
     Register(Register),
     #[regex(r"\.\S+")]
     Label(Label),
-    #[regex(r"-?[0-9]|-?[1-9][0-9]+|0b[01]+", signed_int_literal)]
+    #[regex(r"(?i)-?[0-9]|-?[1-9][0-9]+|0b[01]+|0x[0-9a-f]+|0o[0-7]+", signed_int_literal)]
     Int(i16),
     #[regex(r"[a-zA-Z_~|]\S*")]
     Identifier(String),
