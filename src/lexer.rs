@@ -61,7 +61,7 @@ pub enum TokenKind {
     Mult,
     #[regex(r"/")]
     Div,
-    #[regex(r"~")]
+    #[regex(r"!")]
     Not,
     #[regex(r"&")]
     And,
@@ -91,11 +91,11 @@ pub enum TokenKind {
     Mnemonic(Mnemonic),
     #[regex(r"r\d+")]
     Register(Register),
-    #[regex(r"\.[a-zA-Z0-9_]+")]
+    #[regex(r"\.\S+")]
     Label(Label),
     #[regex(r"-?[0-9]|-?[1-9][0-9]+|0b[01]+", signed_int_literal)]
     Int(i16),
-    #[regex(r"[a-zA-Z_~|][a-zA-Z0-9_~|]*")]
+    #[regex(r"[a-zA-Z_~|]\S*")]
     Identifier(String),
     #[regex(r#"'.'|".""#)]
     Char(Char),
@@ -110,11 +110,13 @@ pub enum TokenKind {
     IncludeMacro,
     #[regex(r"%ifdef")]
     IfDefMacro,
+    #[regex(r"%if")]
+    IfMacro,
     #[regex(r"%endif")]
     EndIfMacro,
-    #[regex(r"%[a-zA-Z_][a-zA-Z0-9_]*")]
+    #[regex(r"%[a-zA-Z_~|]\S*")]
     MacroCall(MacroCall),
-    #[regex(r"\$[a-zA-Z_][a-zA-Z0-9_]*")]
+    #[regex(r"\$[a-zA-Z_~|]\S*")]
     MacroExpression(MacroExpression),
 
     #[eof]

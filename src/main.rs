@@ -15,6 +15,12 @@ use laps::span::{Result, Span};
 use laps::token::{TokenBuffer, TokenStream};
 
 fn generate_file(fp: &str) -> (Vec<Statement>, Span) {
+    let mut content = std::fs::read_to_string(fp).expect("failed to read file");
+    content = content.replace("brh =", "brh eq");
+    content = content.replace("brh !=", "brh ne");
+    content = content.replace("brh >=", "brh ge");
+    content = content.replace("brh <", "brh lt");
+    std::fs::write(fp, content).expect("failed to write file");
     let reader = Reader::from_path(fp).expect("failed to open file");
 
     let span = reader.span().clone();

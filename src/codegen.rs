@@ -369,6 +369,19 @@ impl Codegen {
                     Ok(String::new())
                 }
             }
+            Statement::IfMacro(ifmac) => {
+                let value = self.eval_expression(&ifmac.expression, 64)?;
+                if value != 0 {
+                    let mut output = String::new();
+                    for stmt in ifmac.stmts.iter() {
+                        let out = self.generate_stmt(stmt)?;
+                        output += &out;
+                    }
+                    Ok(output)
+                } else {
+                    Ok(String::new())
+                }
+            }
             Statement::IncludeMacro(_) => Ok(String::new()), // handle include macros before generating code
             Statement::MacroDefinition(_) => Ok(String::new()), // handle macro definitions before generating code
             Statement::Newline(_) => Ok(String::new()),

@@ -33,6 +33,7 @@ token_ast! {
         [endmac] => { kind: TokenKind::EndMacro, prompt: "endmacro" },
         [includemac] => { kind: TokenKind::IncludeMacro, prompt: "include macro" },
         [ifdefmacro] => { kind: TokenKind::IfDefMacro, prompt: "ifdef macro" },
+        [ifmacro] => { kind: TokenKind::IfMacro, prompt: "if macro" },
         [endif] => { kind: TokenKind::EndIfMacro, prompt: "endif macro" },
         [maccall] => { kind: TokenKind::MacroCall(_), prompt: "macro call" },
         [macexpr] => { kind: TokenKind::MacroExpression(_), prompt: "macro expression" },
@@ -51,6 +52,7 @@ pub enum Statement {
     MacroDefinition(MacroDefinition),
     IncludeMacro(IncludeMacro),
     IfDefMacro(IfDefMacro),
+    IfMacro(IfMacro),
     #[allow(dead_code)]
     Newline(Token![nl]),
 }
@@ -68,6 +70,17 @@ pub struct Define {
 pub struct IfDefMacro {
     _ifdef_macro: Token![ifdefmacro],
     pub identifier: Token![ident],
+    _nl: Token![nl],
+    pub stmts: Vec<Statement>,
+    _end_if: Token![endif],
+    _nl2: Token![nl],
+}
+
+#[derive(Parse, Debug, Clone)]
+#[token(Token)]
+pub struct IfMacro {
+    _if_macro: Token![ifmacro],
+    pub expression: Expression,
     _nl: Token![nl],
     pub stmts: Vec<Statement>,
     _end_if: Token![endif],
