@@ -93,7 +93,7 @@ pub enum TokenKind {
     Register(Register),
     #[regex(r"\.\S+")]
     Label(Label),
-    #[regex(r"(?i)-?[0-9]|-?[1-9][0-9]+|0b[01]+|0x[0-9a-f]+", signed_int_literal)]
+    #[regex(r"(?i)-?[0-9]|-?[1-9][0-9]+|0b[01]+|0x[0-9a-f]+|0o[0-7]+", signed_int_literal)]
     Int(i16),
     #[regex(r"[a-zA-Z_~|]\S*")]
     Identifier(String),
