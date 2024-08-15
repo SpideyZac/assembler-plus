@@ -1,6 +1,9 @@
 use crate::lexer::{Token, TokenKind};
 
-use laps::{prelude::*, span::TrySpan};
+use laps::{
+    prelude::*,
+    span::{Span, TrySpan},
+};
 
 token_ast! {
     #[derive(Debug, PartialEq, Clone)]
@@ -87,107 +90,37 @@ pub struct AstStmt {
     _nl: Token![nl],
 }
 
-#[derive(Parse, Debug, Clone, PartialEq)]
-#[token(Token)]
-pub struct Expression {
-    pub first: LogicAnd,
-    pub rest: Vec<(Token![|], LogicAnd)>,
+macro_rules! binop {
+    ($($name: ident: $child: ident, $op: ty),* $(,)?) => {
+        $(
+            #[derive(Parse, Debug, Clone, PartialEq)]
+            #[token(Token)]
+            pub struct $name {
+                pub first: $child,
+                pub rest: Vec<($op, $child)>,
+            }
+
+            impl Spanned for $name {
+                fn span(&self) -> Span {
+                    let mut span = self.first.span();
+                    if let Some(rest_span) = self.rest.try_span() {
+                        span.update_end(rest_span);
+                    }
+                    span
+                }
+            }
+        )*
+    };
 }
 
-impl Spanned for Expression {
-    fn span(&self) -> laps::span::Span {
-        let mut span = self.first.span();
-        if let Some(rest_span) = self.rest.try_span() {
-            span.update_end(rest_span);
-        }
-        span
-    }
-}
-
-#[derive(Parse, Debug, Clone, PartialEq)]
-#[token(Token)]
-pub struct LogicAnd {
-    pub first: Equality,
-    pub rest: Vec<(Token![&], Equality)>,
-}
-
-impl Spanned for LogicAnd {
-    fn span(&self) -> laps::span::Span {
-        let mut span = self.first.span();
-        if let Some(rest_span) = self.rest.try_span() {
-            span.update_end(rest_span);
-        }
-        span
-    }
-}
-
-#[derive(Parse, Debug, Clone, PartialEq)]
-#[token(Token)]
-pub struct Equality {
-    pub first: Comparison,
-    pub rest: Vec<(Token![equality], Comparison)>,
-}
-
-impl Spanned for Equality {
-    fn span(&self) -> laps::span::Span {
-        let mut span = self.first.span();
-        if let Some(rest_span) = self.rest.try_span() {
-            span.update_end(rest_span);
-        }
-        span
-    }
-}
-
-#[derive(Parse, Debug, Clone, PartialEq)]
-#[token(Token)]
-pub struct Comparison {
-    pub first: Term,
-    pub rest: Vec<(Token![cmp], Term)>,
-}
-
-impl Spanned for Comparison {
-    fn span(&self) -> laps::span::Span {
-        let mut span = self.first.span();
-        if let Some(rest_span) = self.rest.try_span() {
-            span.update_end(rest_span);
-        }
-        span
-    }
-}
-
-#[derive(Parse, Debug, Clone, PartialEq)]
-#[token(Token)]
-pub struct Term {
-    pub first: Factor,
-    pub rest: Vec<(Token![+-], Factor)>,
-}
-
-impl Spanned for Term {
-    fn span(&self) -> laps::span::Span {
-        let mut span = self.first.span();
-        if let Some(rest_span) = self.rest.try_span() {
-            span.update_end(rest_span);
-        }
-        span
-    }
-}
-
-#[derive(Parse, Debug, Clone, PartialEq)]
-#[token(Token)]
-pub struct Factor {
-    pub first: Unary,
-    pub rest: Vec<(Token![*/], Unary)>,
-}
-
-impl Spanned for Factor {
-    fn span(&self) -> laps::span::Span {
-        let mut span = self.first.span();
-        if let Some(rest_span) = self.rest.try_span() {
-            span.update_end(rest_span);
-        }
-        span
-    }
-}
+binop!(
+    Expression: LogicAnd, Token![|],
+    LogicAnd: Equality, Token![&],
+    Equality: Comparison, Token![equality],
+    Comparison: Term, Token![cmp],
+    Term: Factor, Token![+-],
+    Factor: Unary, Token![*/],
+);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Unary {

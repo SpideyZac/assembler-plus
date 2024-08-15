@@ -26,6 +26,24 @@ impl Macro {
     }
 }
 
+macro_rules! eval_binop {
+    ($($fn_name: ident, $Ty: ty: $child_fn: ident, $($token_kind: ident, $op: tt),*;)*) => {
+        $(
+            fn $fn_name(&mut self, node: &$Ty) -> Result<i64, Error> {
+                node.rest.iter().try_fold(
+                    self.$child_fn(&node.first)?,
+                    |acc, (op, operand)|  Ok(match op.0.kind {
+                        $(
+                            TokenKind::$token_kind => acc $op self.$child_fn(operand)?,
+                        )*
+                        _ => unreachable!(),
+                    } as i64)
+                )
+            }
+        )*
+    };
+}
+
 pub struct Codegen {
     statements: Vec<Statement>,
     symbol_table: HashMap<String, i64>,
@@ -166,64 +184,13 @@ impl Codegen {
         Ok(value & (2i128.pow(bits) - 1) as i64)
     }
 
-    fn eval_logic_and(&mut self, logic_and: &LogicAnd) -> Result<i64, Error> {
-        logic_and.rest.iter().try_fold(
-            self.eval_equality(&logic_and.first)?,
-            |acc, (_op, operand)| Ok(acc & self.eval_equality(operand)?),
-        )
-    }
-
-    fn eval_equality(&mut self, equality: &Equality) -> Result<i64, Error> {
-        equality
-            .rest
-            .iter()
-            .try_fold(self.eval_cmp(&equality.first)?, |acc, (op, operand)| {
-                Ok(match op.0.kind {
-                    TokenKind::Eq => acc == self.eval_cmp(operand)?,
-                    TokenKind::Ne => acc != self.eval_cmp(operand)?,
-                    _ => unreachable!(),
-                } as i64)
-            })
-    }
-
-    fn eval_cmp(&mut self, cmp: &Comparison) -> Result<i64, Error> {
-        cmp.rest
-            .iter()
-            .try_fold(self.eval_term(&cmp.first)?, |acc, (op, operand)| {
-                Ok(match op.0.kind {
-                    TokenKind::Ge => acc >= self.eval_term(operand)?,
-                    TokenKind::Gt => acc > self.eval_term(operand)?,
-                    TokenKind::Le => acc <= self.eval_term(operand)?,
-                    TokenKind::Lt => acc < self.eval_term(operand)?,
-                    _ => unreachable!(),
-                } as i64)
-            })
-    }
-
-    fn eval_term(&mut self, term: &Term) -> Result<i64, Error> {
-        term.rest
-            .iter()
-            .try_fold(self.eval_factor(&term.first)?, |acc, (op, operand)| {
-                Ok(match op.0.kind {
-                    TokenKind::Plus => acc + self.eval_factor(operand)?,
-                    TokenKind::Minus => acc - self.eval_factor(operand)?,
-                    _ => unreachable!(),
-                } as i64)
-            })
-    }
-
-    fn eval_factor(&mut self, factor: &Factor) -> Result<i64, Error> {
-        factor
-            .rest
-            .iter()
-            .try_fold(self.eval_unary(&factor.first)?, |acc, (op, operand)| {
-                Ok(match op.0.kind {
-                    TokenKind::Mult => acc * self.eval_unary(operand)?,
-                    TokenKind::Div => acc / self.eval_unary(operand)?,
-                    _ => unreachable!(),
-                } as i64)
-            })
-    }
+    eval_binop!(
+        eval_logic_and, LogicAnd: eval_equality, And, &;
+        eval_equality, Equality: eval_cmp, Eq, ==, Ne, !=;
+        eval_cmp, Comparison: eval_term, Ge, >=, Gt, >, Le, <=, Lt, <;
+        eval_term, Term: eval_factor, Plus, +, Minus, -;
+        eval_factor, Factor: eval_unary, Mult, *, Div, /;
+    );
 
     fn eval_unary(&mut self, unary: &Unary) -> Result<i64, Error> {
         unary
