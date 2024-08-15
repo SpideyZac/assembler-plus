@@ -52,7 +52,7 @@ pub enum TokenKind {
     _Skip,
     #[regex(r"\n")]
     Newline,
-
+    
     #[regex(r"\+")]
     Plus,
     #[regex(r"-")]

@@ -13,7 +13,23 @@ token_ast! {
         [register] => { kind: TokenKind::Register(_), prompt: "register" },
         [label] => { kind: TokenKind::Label(_), prompt: "label" },
         [int] => { kind: TokenKind::Int(_), prompt: "integer literal" },
-        [ident] => { kind: TokenKind::Identifier(_), prompt: "identifier" },
+        [ident] => {
+            kind:
+                TokenKind::Identifier(_)
+                | TokenKind::Plus
+                | TokenKind::Mult
+                | TokenKind::Div
+                | TokenKind::Not
+                | TokenKind::And
+                | TokenKind::Or
+                | TokenKind::Eq
+                | TokenKind::Ne
+                | TokenKind::Ge
+                | TokenKind::Gt
+                | TokenKind::Le
+                | TokenKind::Lt,
+            prompt: "identifier"
+        },
         [chr] => { kind: TokenKind::Char(_), prompt: "character literal" },
         [rawstr] => { kind: TokenKind::RawString(_), prompt: "string literal" },
 
@@ -42,6 +58,39 @@ token_ast! {
     }
 }
 
+#[derive(Parse, Debug, Clone, PartialEq)]
+#[token(Token)]
+pub struct Ident {
+    identifier: Token![ident],
+}
+
+impl Ident {
+    pub fn get_name(&self) -> &str {
+        match &self.identifier.0.kind {
+            TokenKind::Identifier(ident) => ident,
+            TokenKind::Plus => "+",
+            TokenKind::Mult => "*",
+            TokenKind::Div => "/",
+            TokenKind::Not => "~",
+            TokenKind::And => "&",
+            TokenKind::Or => "|",
+            TokenKind::Eq => "==",
+            TokenKind::Ne => "!=",
+            TokenKind::Ge => ">=",
+            TokenKind::Gt => ">",
+            TokenKind::Le => "<=",
+            TokenKind::Lt => "<",
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl Spanned for Ident {
+    fn span(&self) -> Span {
+        self.identifier.span()
+    }
+}
+
 #[derive(Parse, Debug, Clone)]
 #[token(Token)]
 pub enum Statement {
@@ -61,7 +110,7 @@ pub enum Statement {
 #[token(Token)]
 pub struct Define {
     _define: Token![define],
-    pub name: Token![ident],
+    pub name: Ident,
     pub value: Expression,
 }
 
@@ -69,7 +118,7 @@ pub struct Define {
 #[token(Token)]
 pub struct IfDefMacro {
     _ifdef_macro: Token![ifdefmacro],
-    pub identifier: Token![ident],
+    pub identifier: Ident,
     _nl: Token![nl],
     pub stmts: Vec<Statement>,
     _end_if: Token![endif],
@@ -172,7 +221,7 @@ pub enum Primary {
     Register(Token![register]),
     Label(Token![label]),
     Int(Token![int]),
-    Identifier(Token![ident]),
+    Identifier(Ident),
     Char(Token![chr]),
     MacroExpression(Token![macexpr]),
     Parenthesized(Token![lparen], Box<Expression>, Token![rparen]),
@@ -208,7 +257,7 @@ pub struct MacroCall {
 #[token(Token)]
 pub struct MacroDefinition {
     pub mac: Token![mac],
-    pub args: Vec<Token![ident]>,
+    pub args: Vec<Ident>,
     _nl2: Token![nl],
     pub body: Vec<Statement>,
     _end: Token![endmac],

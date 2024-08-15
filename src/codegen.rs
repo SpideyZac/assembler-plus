@@ -136,22 +136,16 @@ impl Codegen {
                         "macro must have at least one argument - the name of the macro"
                     );
                 }
-                let name = match &def.args[0].0.kind {
-                    TokenKind::Identifier(i) => i,
-                    _ => unreachable!(),
-                };
+                let name = def.args[0].get_name();
                 if self.macros.contains_key(name) {
                     eval_err!(def.mac.0.span, "redefinition of macro '{}'", name);
                 }
                 let args: Vec<String> = def.args[1..]
                     .iter()
-                    .map(|arg| match &arg.0.kind {
-                        TokenKind::Identifier(i) => i.clone(),
-                        _ => unreachable!(),
-                    })
+                    .map(|arg| arg.get_name().to_owned())
                     .collect();
                 self.macros
-                    .insert(name.clone(), Macro::new(args, def.body.clone()));
+                    .insert(name.to_owned(), Macro::new(args, def.body.clone()));
                 Ok(())
             }
             _ => Ok(()),
@@ -159,13 +153,10 @@ impl Codegen {
     }
 
     fn generate_define_preprocess(&mut self, define: &Define) -> Result<(), Error> {
-        let ident = match &define.name.0.kind {
-            TokenKind::Identifier(ident) => ident,
-            _ => unreachable!(),
-        };
+        let ident = define.name.get_name();
         let value = self.eval_expression(&define.value, 64)?;
         if self.symbol_table.contains_key(&ident.to_lowercase()) {
-            eval_err!(define.name.0.span, "redefinition of '{}'", ident);
+            eval_err!(define.name.span(), "redefinition of '{}'", ident);
         }
         self.symbol_table.insert(ident.to_lowercase(), value);
         Ok(())
@@ -234,14 +225,12 @@ impl Codegen {
                 TokenKind::Int(int) => int as i64,
                 _ => unreachable!(),
             },
-            Primary::Identifier(ident) => match &ident.0.kind {
-                TokenKind::Identifier(i) => {
-                    let value = self.symbol_table.get(&i.to_lowercase());
-                    *value
-                        .ok_or_else(|| log_error!(ident.0.span, "undefined identifier '{}'", i))?
-                }
-                _ => unreachable!(),
-            },
+            Primary::Identifier(ident) => {
+                let value = self.symbol_table.get(&ident.get_name().to_lowercase());
+                *value.ok_or_else(|| {
+                    log_error!(ident.span(), "undefined identifier '{}'", ident.get_name())
+                })?
+            }
             Primary::Char(c) => match c.0.kind {
                 TokenKind::Char(char) => char.value as i64,
                 _ => unreachable!(),
@@ -352,13 +341,10 @@ impl Codegen {
                 Ok(String::new())
             }
             Statement::IfDefMacro(ifdef) => {
-                if self.symbol_table.contains_key(
-                    &match &ifdef.identifier.0.kind {
-                        TokenKind::Identifier(ident) => ident,
-                        _ => unreachable!(),
-                    }
-                    .to_lowercase(),
-                ) {
+                if self
+                    .symbol_table
+                    .contains_key(&ifdef.identifier.get_name().to_lowercase())
+                {
                     let mut output = String::new();
                     for stmt in &ifdef.stmts {
                         let out = self.generate_stmt(stmt)?;
