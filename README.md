@@ -30,6 +30,21 @@ hlt
 %endif
 ```
 
+## For loops 🔴
+For loops allows you to reuse code in a loop
+
+```asm
+ldi r1 clear_chars_buffer
+str r1 r0
+ldi r1 write_char
+%for c in "Hello!"
+    ldi r2 $c
+    str r1 r2
+%endfor
+ldi r1 buffer_chars
+str r1 r0
+```
+
 ## Include Files 🟢
 The include files feature allows you to import another file into your code.
 
