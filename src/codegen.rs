@@ -44,6 +44,92 @@ macro_rules! eval_binop {
     };
 }
 
+macro_rules! instructions {
+    (
+        $self: ident, $mnemonic: expr, $operands: expr, $span: expr =>
+        $($name: ident, $op: literal $(: $($bits: expr $(=>$padding: ident)? $(=>$default: literal)?),*)?;)*
+    ) => {
+        match $mnemonic {
+            $(
+                Mnemonic::$name => {
+                    let args_min = instructions!(@args_min $(: $($bits $(=>$padding)? $(=>$default)?),*)?);
+                    let args_max = instructions!(@args_max $(: $($bits $(=>$padding)? $(=>$default)?),*)?);
+                    if !(args_min..=args_max).contains(&$operands.len()) {
+                        if args_min == args_max {
+                            eval_err!($span, "expected {args_min} operands, got {}", $operands.len());
+                        } else {
+                            eval_err!($span, "expected between {args_min} and {args_max} operands, got {}", $operands.len());
+                        }
+                    }
+                    $(instructions!(
+                        @eval_expression $self, $operands, 0, 0 $(, $bits $(=>$padding)? $(=>$default)?)*) |
+                    )? ($op << 12)
+                }
+            )*
+        }
+    };
+    (@args_min $(: $($bits: expr $(=>$padding: ident)? $(=>$default: literal)?),*)?) => {
+        0 $(+ instructions!(@args_min $($bits $(=>$padding)? $(=>$default)?),*))?
+    };
+    (@args_min $pad: expr =>$padding: ident $(, $bits: expr $(=>$rest: ident)? $(=>$default: literal)?),*) => {
+        instructions!(@args_min $($bits $(=>$rest)? $(=>$default)?),*)
+    };
+    (@args_min $pad: expr =>$default: literal $(, $bits: expr $(=>$rest: ident)? $(=>$def: literal)?),*) => {
+        instructions!(@args_min $($bits $(=>$rest)? $(=>$def)?),*)
+    };
+    (@args_min $bits: expr $(, $rest: expr $(=>$padding: ident)? $(=>$def: literal)?)*) => {
+        1 + instructions!(@args_min $($rest $(=>$padding)? $(=>$def)?),*)
+    };
+    (@args_min) => {0};
+    (@args_max $(: $($bits: expr $(=>$padding: ident)? $(=>$default: literal)?),*)?) => {
+        0 $(+ instructions!(@args_max $($bits $(=>$padding)? $(=>$default)?),*))?
+    };
+    (@args_max $pad: expr =>$padding: ident $(, $bits: expr $(=>$rest: ident)? $(=>$default: literal)?),*) => {
+        instructions!(@args_max $($bits $(=>$rest)? $(=>$default)?),*)
+    };
+    (@args_max $bits: expr $(=> $default: literal)? $(, $rest: expr $(=>$padding: ident)? $(=>$def: literal)?)*) => {
+        1 + instructions!(@args_max $($rest $(=>$padding)? $(=>$def)?),*)
+    };
+    (@args_max) => {0};
+    (
+        @eval_expression
+        $self: ident,
+        $operands: expr,
+        $acc: expr,
+        $shift: expr,
+        $bits: expr
+        $(, $rest: expr $(=>$padding: ident)? $(=>$default: literal)?)*
+    ) => {
+        ($self.eval_expression(&$operands[$acc], $bits)? << (12 - $shift - $bits)) |
+        instructions!(@eval_expression $self, $operands, $acc + 1, $shift + $bits $(, $rest $(=>$padding)? $(=>$default)?)*)
+    };
+    (
+        @eval_expression
+        $self: ident,
+        $operands: expr,
+        $acc: expr,
+        $shift: expr,
+        $bits: expr => $default: literal
+        $(, $rest: expr $(=>$padding: ident)? $(=>$def: literal)?)*
+    ) => {
+        ($operands.get($acc).map_or(Ok($default), |operand| $self.eval_expression(&operand, $bits))?
+        << (12 - $shift - $bits)) |
+        instructions!(@eval_expression $self, $operands, $acc + 1, $shift + $bits $(, $rest $(=>$padding)? $(=>$def)?)*)
+    };
+    (
+        @eval_expression
+        $self: ident,
+        $operands: expr,
+        $acc: expr,
+        $shift: expr,
+        $bits: expr => $pad: ident
+        $(, $rest: expr $(=>$padding: ident)? $(=>$default: literal)?)*
+    ) => {
+        instructions!(@eval_expression $self, $operands, $acc, $shift + $bits $(, $rest $(=>$padding)? $(=>$default)?)*)
+    };
+    (@eval_expression $self: ident, $operands: expr, $acc: expr, $shift: expr) => {0}
+}
+
 pub struct Codegen {
     statements: Vec<Statement>,
     symbol_table: HashMap<String, i64>,
@@ -392,166 +478,34 @@ impl Codegen {
                 operands,
             ),
             parser::Mnemonic::Mnemonic(mnemonic) => {
+                const REG: u32 = 4;
+                const IMM: u32 = 8;
+                const ADDR: u32 = 10;
+                const COND: u32 = 2;
+                const OFFSET: u32 = 4;
+
                 let mnemonic = match mnemonic.0.kind {
                     TokenKind::Mnemonic(mnemonic) => mnemonic,
                     _ => unreachable!(),
                 };
-                let machine_code = match mnemonic {
-                    Mnemonic::Nop => {
-                        if !operands.is_empty() {
-                            eval_err!(span, "expected 0 operands, got {}", operands.len());
-                        }
-                        0
-                    }
-                    Mnemonic::Hlt => {
-                        if !operands.is_empty() {
-                            eval_err!(span, "expected 0 operands, got {}", operands.len());
-                        }
-                        1 << 12
-                    }
-                    Mnemonic::Add => {
-                        if operands.len() != 3 {
-                            eval_err!(span, "expected 3 operands, got {}", operands.len());
-                        }
-                        let rd = self.eval_expression(&operands[0], 4)?;
-                        let rs = self.eval_expression(&operands[1], 4)?;
-                        let rt = self.eval_expression(&operands[2], 4)?;
-                        2 << 12 | (rd << 8) | (rs << 4) | rt
-                    }
-                    Mnemonic::Sub => {
-                        if operands.len() != 3 {
-                            eval_err!(span, "expected 3 operands, got {}", operands.len());
-                        }
-                        let rd = self.eval_expression(&operands[0], 4)?;
-                        let rs = self.eval_expression(&operands[1], 4)?;
-                        let rt = self.eval_expression(&operands[2], 4)?;
-                        3 << 12 | (rd << 8) | (rs << 4) | rt
-                    }
-                    Mnemonic::Nor => {
-                        if operands.len() != 3 {
-                            eval_err!(span, "expected 3 operands, got {}", operands.len());
-                        }
-                        let rd = self.eval_expression(&operands[0], 4)?;
-                        let rs = self.eval_expression(&operands[1], 4)?;
-                        let rt = self.eval_expression(&operands[2], 4)?;
-                        4 << 12 | (rd << 8) | (rs << 4) | rt
-                    }
-                    Mnemonic::And => {
-                        if operands.len() != 3 {
-                            eval_err!(span, "expected 3 operands, got {}", operands.len());
-                        }
-                        let rd = self.eval_expression(&operands[0], 4)?;
-                        let rs = self.eval_expression(&operands[1], 4)?;
-                        let rt = self.eval_expression(&operands[2], 4)?;
-                        5 << 12 | (rd << 8) | (rs << 4) | rt
-                    }
-                    Mnemonic::Xor => {
-                        if operands.len() != 3 {
-                            eval_err!(span, "expected 3 operands, got {}", operands.len());
-                        }
-                        let rd = self.eval_expression(&operands[0], 4)?;
-                        let rs = self.eval_expression(&operands[1], 4)?;
-                        let rt = self.eval_expression(&operands[2], 4)?;
-                        6 << 12 | (rd << 8) | (rs << 4) | rt
-                    }
-                    Mnemonic::Rsh => {
-                        if operands.len() != 2 {
-                            eval_err!(span, "expected 2 operands, got {}", operands.len());
-                        }
-                        let rd = self.eval_expression(&operands[0], 4)?;
-                        let rs = self.eval_expression(&operands[1], 4)?;
-                        7 << 12 | (rd << 8) | rs
-                    }
-                    Mnemonic::Ldi => {
-                        if operands.len() != 2 {
-                            eval_err!(span, "expected 2 operands, got {}", operands.len());
-                        }
-                        let rd = self.eval_expression(&operands[0], 4)?;
-                        let imm = self.eval_expression(&operands[1], 8)?;
-                        if !(-128..=255).contains(&imm) {
-                            eval_err!(span, "immediate value {} out of range [-128, 255]", imm);
-                        }
-                        8 << 12 | (rd << 8) | imm
-                    }
-                    Mnemonic::Adi => {
-                        if operands.len() != 2 {
-                            eval_err!(span, "expected 2 operands, got {}", operands.len());
-                        }
-                        let rd = self.eval_expression(&operands[0], 4)?;
-                        let imm = self.eval_expression(&operands[1], 8)?;
-                        if !(-128..=255).contains(&imm) {
-                            eval_err!(span, "immediate value {} out of range [-128, 255]", imm);
-                        }
-                        9 << 12 | (rd << 8) | imm
-                    }
-                    Mnemonic::Jmp => {
-                        if operands.len() != 1 {
-                            eval_err!(span, "expected 1 operands, got {}", operands.len());
-                        }
-                        let addr = self.eval_expression(&operands[0], 10)?;
-                        if addr != (addr % 1024) {
-                            eval_err!(span, "jump address {} out of range [0, 1023]", addr);
-                        }
-                        10 << 12 | addr
-                    }
-                    Mnemonic::Brh => {
-                        if operands.len() != 2 {
-                            eval_err!(span, "expected 2 operands, got {}", operands.len());
-                        }
-                        let cond = self.eval_expression(&operands[0], 2)?;
-                        let addr = self.eval_expression(&operands[1], 10)?;
-                        if addr != (addr % 1024) {
-                            eval_err!(span, "jump address {} out of range [0, 1023]", addr);
-                        }
-                        11 << 12 | (cond << 10) | addr
-                    }
-                    Mnemonic::Cal => {
-                        if operands.len() != 1 {
-                            eval_err!(span, "expected 1 operands, got {}", operands.len());
-                        }
-                        let addr = self.eval_expression(&operands[0], 10)?;
-                        12 << 12 | addr
-                    }
-                    Mnemonic::Ret => {
-                        if !operands.is_empty() {
-                            eval_err!(span, "expected 0 operands, got {}", operands.len());
-                        }
-                        13 << 12
-                    }
-                    Mnemonic::Lod => {
-                        if !(2..=3).contains(&operands.len()) {
-                            eval_err!(span, "expected 2 or 3 operands, got {}", operands.len());
-                        }
-                        let rd = self.eval_expression(&operands[0], 4)?;
-                        let rs = self.eval_expression(&operands[1], 4)?;
-                        let offset = if operands.len() == 3 {
-                            self.eval_expression(&operands[2], 4)?
-                        } else {
-                            0
-                        };
-                        14 << 12 | (rd << 8) | (rs << 4) | offset
-                    }
-                    Mnemonic::Str => {
-                        if !(2..=3).contains(&operands.len()) {
-                            eval_err!(span, "expected 2 or 3 operands, got {}", operands.len());
-                        }
-                        let rd = self.eval_expression(&operands[0], 4)?;
-                        let rs = self.eval_expression(&operands[1], 4)?;
-                        let offset = if operands.len() == 3 {
-                            self.eval_expression(&operands[2], 4)?
-                        } else {
-                            0
-                        };
-                        let mut masked = offset & 0b1111;
-                        if masked & 0b1000 != 0 {
-                            masked -= 16;
-                        }
-                        if !(-8..=7).contains(&masked) {
-                            eval_err!(span, "offset value {} out of range [-8, 7]", masked);
-                        }
-                        15 << 12 | (rd << 8) | (rs << 4) | offset
-                    }
-                };
+                let machine_code = instructions!(self, mnemonic, operands, span =>
+                    Nop, 0;
+                    Hlt, 1;
+                    Add, 2: REG, REG, REG;
+                    Sub, 3: REG, REG, REG;
+                    Nor, 4: REG, REG, REG;
+                    And, 5: REG, REG, REG;
+                    Xor, 6: REG, REG, REG;
+                    Rsh, 7: REG, 4=>pad, REG;
+                    Ldi, 8: REG, IMM;
+                    Adi, 9: REG, IMM;
+                    Jmp,10: 2=>pad, ADDR;
+                    Brh,11: COND, ADDR;
+                    Cal,12: 2=>pad, ADDR;
+                    Ret,13;
+                    Lod,14: REG, REG, OFFSET=>0;
+                    Str,15: REG, REG, OFFSET=>0;
+                );
                 Ok(format!("{:016b}\n", machine_code))
             }
         }
