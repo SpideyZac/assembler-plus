@@ -51,7 +51,6 @@ token_ast! {
         [ifdefmacro] => { kind: TokenKind::IfDefMacro, prompt: "ifdef macro" },
         [ifmacro] => { kind: TokenKind::IfMacro, prompt: "if macro" },
         [endif] => { kind: TokenKind::EndIfMacro, prompt: "endif macro" },
-        [maccall] => { kind: TokenKind::MacroCall(_), prompt: "macro call" },
         [macexpr] => { kind: TokenKind::MacroExpression(_), prompt: "macro expression" },
 
         [eof] => { kind: TokenKind::Eof, prompt: "end of file" },
@@ -94,10 +93,9 @@ impl Spanned for Ident {
 #[derive(Parse, Debug, Clone)]
 #[token(Token)]
 pub enum Statement {
-    AstStmt(AstStmt),
+    Instruction(Instruction),
     Define(Define),
     Label(Token![label]),
-    MacroCall(MacroCall),
     MacroDefinition(MacroDefinition),
     IncludeMacro(IncludeMacro),
     IfDefMacro(IfDefMacro),
@@ -146,10 +144,36 @@ pub struct IncludeMacro {
 
 #[derive(Parse, Debug, Clone)]
 #[token(Token)]
-pub struct AstStmt {
-    pub mnemonic: Token![mnemonic],
+pub struct Instruction {
+    pub mnemonic: Mnemonic,
     pub operands: Vec<Expression>,
     _nl: Token![nl],
+}
+
+impl Spanned for Instruction {
+    fn span(&self) -> Span {
+        let mut span = self.mnemonic.span();
+        if let Some(operands_span) = self.operands.try_span() {
+            span.update_end(operands_span);
+        }
+        span
+    }
+}
+
+#[derive(Parse, Debug, Clone, PartialEq)]
+#[token(Token)]
+pub enum Mnemonic {
+    Mnemonic(Token![mnemonic]),
+    MacroCall(Ident),
+}
+
+impl Spanned for Mnemonic {
+    fn span(&self) -> Span {
+        match self {
+            Mnemonic::Mnemonic(mnemonic) => mnemonic.span(),
+            Mnemonic::MacroCall(call) => call.span(),
+        }
+    }
 }
 
 macro_rules! binop {
@@ -243,14 +267,6 @@ impl Spanned for Primary {
             }
         }
     }
-}
-
-#[derive(Parse, Debug, Clone)]
-#[token(Token)]
-pub struct MacroCall {
-    pub name: Token![maccall],
-    pub args: Vec<Expression>,
-    _nl: Token![nl],
 }
 
 #[derive(Parse, Debug, Clone)]

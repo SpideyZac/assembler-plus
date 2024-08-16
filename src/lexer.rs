@@ -52,7 +52,7 @@ pub enum TokenKind {
     _Skip,
     #[regex(r"\n")]
     Newline,
-    
+
     #[regex(r"\+")]
     Plus,
     #[regex(r"-")]
@@ -93,7 +93,10 @@ pub enum TokenKind {
     Register(Register),
     #[regex(r"\.\S+")]
     Label(Label),
-    #[regex(r"(?i)-?[0-9]|-?[1-9][0-9]+|0b[01]+|0x[0-9a-f]+|0o[0-7]+", signed_int_literal)]
+    #[regex(
+        r"(?i)-?[0-9]|-?[1-9][0-9]+|0b[01]+|0x[0-9a-f]+|0o[0-7]+",
+        signed_int_literal
+    )]
     Int(i16),
     #[regex(r"[a-zA-Z_~|]\S*")]
     Identifier(String),
@@ -114,8 +117,6 @@ pub enum TokenKind {
     IfMacro,
     #[regex(r"%endif")]
     EndIfMacro,
-    #[regex(r"%[a-zA-Z_~|]\S*")]
-    MacroCall(MacroCall),
     #[regex(r"\$[a-zA-Z_~|]\S*")]
     MacroExpression(MacroExpression),
 
