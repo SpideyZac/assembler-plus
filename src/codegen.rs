@@ -29,7 +29,7 @@ impl Macro {
 macro_rules! eval_binop {
     ($($fn_name: ident, $Ty: ty: $child_fn: ident, $($token_kind: ident, $op: tt),*;)*) => {
         $(
-            fn $fn_name(&mut self, node: &$Ty) -> Result<i64, Error> {
+            fn $fn_name(&self, node: &$Ty) -> Result<i64, Error> {
                 node.rest.iter().try_fold(
                     self.$child_fn(&node.first)?,
                     |acc, (op, operand)|  Ok(match op.0.kind {
@@ -72,6 +72,10 @@ impl Codegen {
         res.symbol_table.insert("ne".to_string(), 1);
         res.symbol_table.insert("ge".to_string(), 2);
         res.symbol_table.insert("lt".to_string(), 3);
+        res.symbol_table.insert("=".to_string(), 0);
+        res.symbol_table.insert("!=".to_string(), 1);
+        res.symbol_table.insert(">=".to_string(), 2);
+        res.symbol_table.insert("<".to_string(), 3);
         res.symbol_table.insert("z".to_string(), 0);
         res.symbol_table.insert("nz".to_string(), 1);
         res.symbol_table.insert("c".to_string(), 2);
@@ -127,17 +131,7 @@ impl Codegen {
                 mnemonic: parser::Mnemonic::MacroCall(name),
                 ..
             }) => {
-                let m = self.macros.get(name.get_name());
-                let m = m.ok_or_else(|| {
-                    log_error!(name.span(), "undefined macro '{}'", name.get_name())
-                })?;
-                let mut len = 0;
-                for stmt in m.body.iter() {
-                    if let Statement::Instruction(_) = stmt {
-                        len += 1
-                    }
-                }
-
+                let len = self.count_macro_call(name.span(), name.get_name())?;
                 self.instruction_pointer += len;
                 Ok(())
             }
@@ -183,7 +177,7 @@ impl Codegen {
         Ok(())
     }
 
-    fn eval_expression(&mut self, expression: &Expression, bits: u32) -> Result<i64, Error> {
+    fn eval_expression(&self, expression: &Expression, bits: u32) -> Result<i64, Error> {
         let value = Ok(expression.rest.iter().try_fold(
             self.eval_logic_and(&expression.first)?,
             |acc, (_op, operand)| Ok(acc | self.eval_logic_and(operand)?),
@@ -204,7 +198,7 @@ impl Codegen {
         eval_factor, Factor: eval_unary, Mult, *, Div, /;
     );
 
-    fn eval_unary(&mut self, unary: &Unary) -> Result<i64, Error> {
+    fn eval_unary(&self, unary: &Unary) -> Result<i64, Error> {
         unary
             .ops
             .iter()
@@ -219,7 +213,7 @@ impl Codegen {
             })
     }
 
-    fn eval_primary(&mut self, primary: &Primary) -> Result<i64, Error> {
+    fn eval_primary(&self, primary: &Primary) -> Result<i64, Error> {
         Ok(match primary {
             Primary::Parenthesized(_, expr, _) => self.eval_expression(expr, 64)?,
             Primary::Register(r) => match r.0.kind {
@@ -291,6 +285,55 @@ impl Codegen {
         }
         self.labels_table.insert(name, self.instruction_pointer);
         Ok(())
+    }
+
+    fn statement_len(&self, stmt: &Statement) -> Result<u64, Error> {
+        match stmt {
+            Statement::Instruction(Instruction {
+                mnemonic: parser::Mnemonic::MacroCall(name),
+                ..
+            }) => self.count_macro_call(name.span(), name.get_name()),
+            Statement::Instruction(Instruction {
+                mnemonic: parser::Mnemonic::Mnemonic(_),
+                ..
+            }) => Ok(1),
+            Statement::Define(_) => Ok(0),
+            Statement::Label(_) => Ok(0),
+            Statement::MacroDefinition(_) => Ok(0),
+            Statement::IncludeMacro(_) => Ok(0),
+            Statement::IfDefMacro(ifdef) => {
+                if self.symbol_table.contains_key(ifdef.identifier.get_name()) {
+                    ifdef
+                        .stmts
+                        .iter()
+                        .try_fold(0, |acc, stmt| Ok(acc + self.statement_len(stmt)?))
+                } else {
+                    Ok(0)
+                }
+            }
+            Statement::IfMacro(if_macro) => {
+                if self.eval_expression(&if_macro.expression, 64)? != 0 {
+                    if_macro
+                        .stmts
+                        .iter()
+                        .try_fold(0, |acc, stmt| Ok(acc + self.statement_len(stmt)?))
+                } else {
+                    Ok(0)
+                }
+            }
+            Statement::Newline(_) => Ok(0),
+        }
+    }
+
+    fn count_macro_call(&self, name_span: Span, name: &str) -> Result<u64, Error> {
+        let m = self.macros.get(name);
+        let m = m.ok_or_else(|| log_error!(name_span, "undefined macro '{}'", name))?;
+
+        let mut len = 0;
+        for stmt in m.body.iter() {
+            len += self.statement_len(stmt)?;
+        }
+        Ok(len)
     }
 
     fn generate_macro_call(
