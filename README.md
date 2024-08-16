@@ -30,7 +30,7 @@ hlt
 %endif
 ```
 
-## For loops 🔴
+## For loops 🟢
 For loops allows you to reuse code in a loop
 
 ```asm

@@ -27,7 +27,8 @@ token_ast! {
                 | TokenKind::Ge
                 | TokenKind::Gt
                 | TokenKind::Le
-                | TokenKind::Lt,
+                | TokenKind::Lt
+                | TokenKind::In,
             prompt: "identifier"
         },
         [chr] => { kind: TokenKind::Char(_), prompt: "character literal" },
@@ -50,6 +51,9 @@ token_ast! {
         [includemac] => { kind: TokenKind::IncludeMacro, prompt: "include macro" },
         [ifdefmacro] => { kind: TokenKind::IfDefMacro, prompt: "ifdef macro" },
         [ifmacro] => { kind: TokenKind::IfMacro, prompt: "if macro" },
+        [formacro] => { kind: TokenKind::ForMacro, prompt: "for macro" },
+        [in] => { kind: TokenKind::In, prompt: "in" },
+        [endfor] => { kind: TokenKind::EndForMacro, prompt: "end for" },
         [endif] => { kind: TokenKind::EndIfMacro, prompt: "endif macro" },
         [macexpr] => { kind: TokenKind::MacroExpression(_), prompt: "macro expression" },
 
@@ -79,6 +83,7 @@ impl Ident {
             TokenKind::Gt => ">",
             TokenKind::Le => "<=",
             TokenKind::Lt => "<",
+            TokenKind::In => "in",
             _ => unreachable!(),
         }
     }
@@ -100,6 +105,7 @@ pub enum Statement {
     IncludeMacro(IncludeMacro),
     IfDefMacro(IfDefMacro),
     IfMacro(IfMacro),
+    ForMacro(ForMacro),
     #[allow(dead_code)]
     Newline(Token![nl]),
 }
@@ -131,6 +137,19 @@ pub struct IfMacro {
     _nl: Token![nl],
     pub stmts: Vec<Statement>,
     _end_if: Token![endif],
+    _nl2: Token![nl],
+}
+
+#[derive(Parse, Debug, Clone)]
+#[token(Token)]
+pub struct ForMacro {
+    _for_macro: Token![formacro],
+    pub ident: Ident,
+    _in: Token![in],
+    pub expr: Expression,
+    _nl: Token![nl],
+    pub stmts: Vec<Statement>,
+    _end_for: Token![endfor],
     _nl2: Token![nl],
 }
 
@@ -242,6 +261,7 @@ impl Spanned for Unary {
 #[derive(Parse, Debug, Clone, PartialEq)]
 #[token(Token)]
 pub enum Primary {
+    String(Token![rawstr]),
     Register(Token![register]),
     Label(Token![label]),
     Int(Token![int]),
@@ -254,6 +274,7 @@ pub enum Primary {
 impl Spanned for Primary {
     fn span(&self) -> Span {
         match self {
+            Primary::String(string) => string.span(),
             Primary::Register(reg) => reg.span(),
             Primary::Label(lbl) => lbl.span(),
             Primary::Int(int) => int.span(),

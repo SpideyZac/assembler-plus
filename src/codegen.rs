@@ -1,6 +1,7 @@
 use std::collections::HashMap;
+use std::str::FromStr;
 
-use crate::lexer::{Mnemonic, TokenKind};
+use crate::lexer::{Char, Mnemonic, TokenKind};
 use crate::parser::{
     self, Comparison, Define, Equality, Expression, Factor, Instruction, LogicAnd, Primary,
     Statement, Term, Unary, __token_ast_Token,
@@ -15,6 +16,60 @@ macro_rules! eval_err {
     };
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
+enum Value {
+    Int(i64),
+    String(String),
+}
+
+macro_rules! try_value {
+    ($($fn_name: ident, $msg: expr, $op: tt;)*) => {
+        $(
+            fn $fn_name(&self, other: &Self, span: Span) -> Result<Self, Error> {
+                match (self, other) {
+                    (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a $op b)),
+                    (Value::Int(_), Value::String(_)) => {
+                        eval_err!(span, "Can't {} string with int", $msg)
+                    }
+                    (Value::String(_), Value::Int(_)) => {
+                        eval_err!(span, "Can't {} int with string", $msg)
+                    }
+                    (Value::String(_), Value::String(_)) => eval_err!(span, "Can't {} string with string", $msg),
+                }
+            }
+        )*
+    };
+}
+
+impl Value {
+    fn try_add(&self, other: &Self, span: Span) -> Result<Self, Error> {
+        match (self, other) {
+            (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a + b)),
+            (Value::Int(_), Value::String(_)) => {
+                eval_err!(span, "Can't add string to int")
+            }
+            (Value::String(_), Value::Int(_)) => {
+                eval_err!(span, "Can't add int to string")
+            }
+            (Value::String(a), Value::String(b)) => Ok(Value::String(a.to_owned() + b)),
+        }
+    }
+
+    try_value!(
+        try_sub, "subtract", -;
+        try_mul, "multiply", *;
+        try_div, "divide", /;
+        try_or, "or", |;
+        try_and, "and", &;
+    );
+}
+
+impl From<bool> for Value {
+    fn from(value: bool) -> Self {
+        Self::Int(value as i64)
+    }
+}
+
 struct Macro {
     pub args: Vec<String>,
     pub body: Vec<Statement>,
@@ -27,21 +82,35 @@ impl Macro {
 }
 
 macro_rules! eval_binop {
-    ($($fn_name: ident, $Ty: ty: $child_fn: ident, $($token_kind: ident, $op: tt),*;)*) => {
-        $(
-            fn $fn_name(&self, node: &$Ty) -> Result<i64, Error> {
-                node.rest.iter().try_fold(
-                    self.$child_fn(&node.first)?,
-                    |acc, (op, operand)|  Ok(match op.0.kind {
-                        $(
-                            TokenKind::$token_kind => acc $op self.$child_fn(operand)?,
-                        )*
-                        _ => unreachable!(),
-                    } as i64)
-                )
-            }
-        )*
+    ($fn_name: ident, $Ty: ty: $child_fn: ident, $($token_kind: ident, try $op: ident),*; $($tt:tt)*) => {
+        fn $fn_name(&self, node: &$Ty) -> Result<Value, Error> {
+            node.rest.iter().try_fold(
+                self.$child_fn(&node.first)?,
+                |acc, (op, operand)|  Ok(match op.0.kind {
+                    $(
+                        TokenKind::$token_kind => acc.$op(&self.$child_fn(operand)?, node.span())?.into(),
+                    )*
+                    _ => unreachable!(),
+                })
+            )
+        }
+        eval_binop!($($tt)*);
     };
+    ($fn_name: ident, $Ty: ty: $child_fn: ident, $($token_kind: ident, $op: ident),*; $($tt:tt)*) => {
+        fn $fn_name(&self, node: &$Ty) -> Result<Value, Error> {
+            node.rest.iter().try_fold(
+                self.$child_fn(&node.first)?,
+                |acc, (op, operand)|  Ok(match op.0.kind {
+                    $(
+                        TokenKind::$token_kind => acc.$op(&self.$child_fn(operand)?).into(),
+                    )*
+                    _ => unreachable!(),
+                })
+            )
+        }
+        eval_binop!($($tt)*);
+    };
+    () => {}
 }
 
 macro_rules! instructions {
@@ -62,7 +131,7 @@ macro_rules! instructions {
                         }
                     }
                     $(instructions!(
-                        @eval_expression $self, $operands, 0, 0 $(, $bits $(=>$padding)? $(=>$default)?)*) |
+                        @eval_expression $self, $span, $operands, 0, 0 $(, $bits $(=>$padding)? $(=>$default)?)*) |
                     )? ($op << 12)
                 }
             )*
@@ -94,49 +163,57 @@ macro_rules! instructions {
     (
         @eval_expression
         $self: ident,
+        $span: expr,
         $operands: expr,
         $acc: expr,
         $shift: expr,
         $bits: expr
         $(, $rest: expr $(=>$padding: ident)? $(=>$default: literal)?)*
     ) => {
-        ($self.eval_expression(&$operands[$acc], $bits)? << (12 - $shift - $bits)) |
-        instructions!(@eval_expression $self, $operands, $acc + 1, $shift + $bits $(, $rest $(=>$padding)? $(=>$default)?)*)
+        (match $self.eval_expression(&$operands[$acc], $bits)? {
+            Value::Int(int) => int,
+            Value::String(_) => eval_err!($span, "expected an integer value, but got a string"),
+        } << (12 - $shift - $bits)) |
+        instructions!(@eval_expression $self, $span, $operands, $acc + 1, $shift + $bits $(, $rest $(=>$padding)? $(=>$default)?)*)
     };
     (
         @eval_expression
         $self: ident,
+        $span: expr,
         $operands: expr,
         $acc: expr,
         $shift: expr,
         $bits: expr => $default: literal
         $(, $rest: expr $(=>$padding: ident)? $(=>$def: literal)?)*
     ) => {
-        ($operands.get($acc).map_or(Ok($default), |operand| $self.eval_expression(&operand, $bits))?
-        << (12 - $shift - $bits)) |
-        instructions!(@eval_expression $self, $operands, $acc + 1, $shift + $bits $(, $rest $(=>$padding)? $(=>$def)?)*)
+        ($operands.get($acc).map_or(Ok($default), |operand| match $self.eval_expression(&operand, $bits)? {
+            Value::Int(int) => Ok(int),
+            Value::String(_) => eval_err!($span, "expected an integer value, but got a string")
+        })? << (12 - $shift - $bits)) |
+        instructions!(@eval_expression $self, $span, $operands, $acc + 1, $shift + $bits $(, $rest $(=>$padding)? $(=>$def)?)*)
     };
     (
         @eval_expression
         $self: ident,
+        $span: expr,
         $operands: expr,
         $acc: expr,
         $shift: expr,
         $bits: expr => $pad: ident
         $(, $rest: expr $(=>$padding: ident)? $(=>$default: literal)?)*
     ) => {
-        instructions!(@eval_expression $self, $operands, $acc, $shift + $bits $(, $rest $(=>$padding)? $(=>$default)?)*)
+        instructions!(@eval_expression $self, $span, $operands, $acc, $shift + $bits $(, $rest $(=>$padding)? $(=>$default)?)*)
     };
-    (@eval_expression $self: ident, $operands: expr, $acc: expr, $shift: expr) => {0}
+    (@eval_expression $self: ident, $span: expr, $operands: expr, $acc: expr, $shift: expr) => {0}
 }
 
 pub struct Codegen {
     statements: Vec<Statement>,
-    symbol_table: HashMap<String, i64>,
+    symbol_table: HashMap<String, Value>,
     labels_table: HashMap<String, u64>,
     instruction_pointer: u64,
     macros: HashMap<String, Macro>,
-    current_macro_defs: Vec<HashMap<String, i64>>,
+    current_macro_defs: Vec<HashMap<String, Value>>,
     next_macro_uuid: u64,
     uuid_stack: Vec<u64>,
 }
@@ -222,47 +299,69 @@ impl Codegen {
         Ok(())
     }
 
-    fn eval_expression(&self, expression: &Expression, bits: u32) -> Result<i64, Error> {
-        let value = Ok(expression.rest.iter().try_fold(
+    fn eval_expression(&self, expression: &Expression, bits: u32) -> Result<Value, Error> {
+        let value = expression.rest.iter().try_fold(
             self.eval_logic_and(&expression.first)?,
-            |acc, (_op, operand)| Ok(acc | self.eval_logic_and(operand)?),
-        )?)?;
-        if (value.is_negative() && value.leading_ones() <= 64 - bits)
-            || (value.is_positive() && value.leading_zeros() < 64 - bits)
-        {
-            log_warning!(expression.span(), "Value is truncated to {bits} bits");
+            |acc, (op, operand)| {
+                Ok(match op.0.kind {
+                    TokenKind::Or => {
+                        acc.try_or(&self.eval_logic_and(operand)?, expression.span())?
+                    }
+                    _ => unreachable!(),
+                })
+            },
+        )?;
+        match value {
+            Value::Int(value) => {
+                if (value.is_negative() && value.leading_ones() <= 64 - bits)
+                    || (value.is_positive() && value.leading_zeros() < 64 - bits)
+                {
+                    log_warning!(expression.span(), "Value is truncated to {bits} bits");
+                }
+                Ok(Value::Int(value & (2i128.pow(bits) - 1) as i64))
+            }
+            Value::String(string) => Ok(Value::String(string)),
         }
-        Ok(value & (2i128.pow(bits) - 1) as i64)
     }
 
     eval_binop!(
-        eval_logic_and, LogicAnd: eval_equality, And, &;
-        eval_equality, Equality: eval_cmp, Eq, ==, Ne, !=;
-        eval_cmp, Comparison: eval_term, Ge, >=, Gt, >, Le, <=, Lt, <;
-        eval_term, Term: eval_factor, Plus, +, Minus, -;
-        eval_factor, Factor: eval_unary, Mult, *, Div, /;
+        eval_logic_and, LogicAnd: eval_equality, And, try try_and;
+        eval_equality, Equality: eval_cmp, Eq, eq, Ne, ne;
+        eval_cmp, Comparison: eval_term, Ge, ge, Gt, lt, Le, le, Lt, lt;
+        eval_term, Term: eval_factor, Plus, try try_add, Minus, try try_sub;
+        eval_factor, Factor: eval_unary, Mult, try try_mul, Div, try try_div;
     );
 
-    fn eval_unary(&self, unary: &Unary) -> Result<i64, Error> {
+    fn eval_unary(&self, unary: &Unary) -> Result<Value, Error> {
         unary
             .ops
             .iter()
             .rev()
             .try_fold(self.eval_primary(&unary.primary)?, |acc, op| {
-                Ok(match op.0.kind {
+                let acc = match acc {
+                    Value::Int(int) => int,
+                    Value::String(_) => {
+                        eval_err!(unary.span(), "Can't apply unary operator to string")
+                    }
+                };
+                Ok(Value::Int(match op.0.kind {
                     TokenKind::Not => !acc,
                     TokenKind::Plus => acc,
                     TokenKind::Minus => -acc,
                     _ => unreachable!(),
-                })
+                }))
             })
     }
 
-    fn eval_primary(&self, primary: &Primary) -> Result<i64, Error> {
+    fn eval_primary(&self, primary: &Primary) -> Result<Value, Error> {
         Ok(match primary {
+            Primary::String(string) => Value::String(match &string.0.kind {
+                TokenKind::RawString(string) => string.value.clone(),
+                _ => unreachable!(),
+            }),
             Primary::Parenthesized(_, expr, _) => self.eval_expression(expr, 64)?,
             Primary::Register(r) => match r.0.kind {
-                TokenKind::Register(reg) => reg.number as i64,
+                TokenKind::Register(reg) => Value::Int(reg.number as i64),
                 _ => unreachable!(),
             },
             Primary::Label(l) => match &l.0.kind {
@@ -274,25 +373,30 @@ impl Codegen {
                         name.insert_str(0, "__");
                     }
                     let value = self.labels_table.get(&name);
-                    *value
-                        .or_else(|| self.labels_table.get(&format!("__{}", &label.name)))
-                        .ok_or_else(|| log_error!(l.0.span, "undefined label '{}'", label.name))?
-                        as i64
+                    Value::Int(
+                        *value
+                            .or_else(|| self.labels_table.get(&format!("__{}", &label.name)))
+                            .ok_or_else(|| {
+                                log_error!(l.0.span, "undefined label '{}'", label.name)
+                            })? as i64,
+                    )
                 }
                 _ => unreachable!(),
             },
             Primary::Int(i) => match i.0.kind {
-                TokenKind::Int(int) => int as i64,
+                TokenKind::Int(int) => Value::Int(int as i64),
                 _ => unreachable!(),
             },
             Primary::Identifier(ident) => {
                 let value = self.symbol_table.get(&ident.get_name().to_lowercase());
-                *value.ok_or_else(|| {
-                    log_error!(ident.span(), "undefined identifier '{}'", ident.get_name())
-                })?
+                value
+                    .ok_or_else(|| {
+                        log_error!(ident.span(), "undefined identifier '{}'", ident.get_name())
+                    })?
+                    .clone()
             }
             Primary::Char(c) => match c.0.kind {
-                TokenKind::Char(char) => char.value as i64,
+                TokenKind::Char(char) => Value::Int(char.value as i64),
                 _ => unreachable!(),
             },
             Primary::MacroExpression(macroexpr) => {
@@ -300,11 +404,10 @@ impl Codegen {
                     TokenKind::MacroExpression(m) => &m.name,
                     _ => unreachable!(),
                 };
-                let mut value;
                 for macro_def in self.current_macro_defs.iter().rev() {
-                    value = macro_def.get(name);
+                    let value = macro_def.get(name);
                     if let Some(value) = value {
-                        return Ok(*value);
+                        return Ok(value.clone());
                     }
                 }
                 eval_err!(macroexpr.0.span, "undefined macro expression '{}'", name);
@@ -357,7 +460,8 @@ impl Codegen {
                 }
             }
             Statement::IfMacro(if_macro) => {
-                if self.eval_expression(&if_macro.expression, 64)? != 0 {
+                let value = self.eval_expression(&if_macro.expression, 64)?;
+                if value != Value::Int(0) && value != Value::String(String::new()) {
                     if_macro
                         .stmts
                         .iter()
@@ -365,6 +469,19 @@ impl Codegen {
                 } else {
                     Ok(0)
                 }
+            }
+            Statement::ForMacro(for_macro) => {
+                Ok(match self.eval_expression(&for_macro.expr, 64)? {
+                    Value::Int(_) => eval_err!(
+                        for_macro.expr.span(),
+                        "Invalid value for for loop, expected string, found int"
+                    ),
+                    Value::String(string) => string.len(),
+                } as u64
+                    * for_macro
+                        .stmts
+                        .iter()
+                        .try_fold(0, |acc, stmt| Ok(acc + self.statement_len(stmt)?))?)
             }
             Statement::Newline(_) => Ok(0),
         }
@@ -450,7 +567,7 @@ impl Codegen {
             }
             Statement::IfMacro(ifmac) => {
                 let value = self.eval_expression(&ifmac.expression, 64)?;
-                if value != 0 {
+                if value != Value::Int(0) && value != Value::String(String::new()) {
                     let mut output = String::new();
                     for stmt in ifmac.stmts.iter() {
                         let out = self.generate_stmt(stmt)?;
@@ -460,6 +577,53 @@ impl Codegen {
                 } else {
                     Ok(String::new())
                 }
+            }
+            Statement::ForMacro(for_macro) => {
+                let value = match self.eval_expression(&for_macro.expr, 64)? {
+                    Value::Int(_) => eval_err!(
+                        for_macro.expr.span(),
+                        "Invalid value for for loop, expected string, found int"
+                    ),
+                    Value::String(string) => string,
+                };
+                self.current_macro_defs.push(HashMap::new());
+                if self.current_macro_defs[self.current_macro_defs.len() - 1]
+                    .contains_key(for_macro.ident.get_name())
+                {
+                    eval_err!(
+                        for_macro.ident.span(),
+                        "redefinition of argument '{}'",
+                        for_macro.ident.get_name()
+                    );
+                }
+                let mut output = String::new();
+                for char in value.chars() {
+                    self.uuid_stack.push(self.next_macro_uuid);
+                    self.next_macro_uuid += 1;
+                    let len = self.current_macro_defs.len() - 1;
+                    self.current_macro_defs[len].insert(
+                        for_macro.ident.get_name().to_owned(),
+                        Value::Int(
+                            Char::from_str(&format!("'{char}'"))
+                                .map_err(|_| {
+                                    log_error!(
+                                        for_macro.expr.span(),
+                                        "Invalid character in string: '{char}'"
+                                    )
+                                })?
+                                .value as i64,
+                        ),
+                    );
+                    for stmt in &for_macro.stmts {
+                        let out = self.generate_stmt(stmt)?;
+                        output += &out;
+                    }
+                    self.uuid_stack.pop();
+                }
+                let len = self.current_macro_defs.len() - 1;
+                self.current_macro_defs[len].remove(for_macro.ident.get_name());
+                self.current_macro_defs.pop();
+                Ok(output)
             }
             Statement::IncludeMacro(_) => Ok(String::new()), // handle include macros before generating code
             Statement::MacroDefinition(_) => Ok(String::new()), // handle macro definitions before generating code

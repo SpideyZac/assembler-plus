@@ -115,6 +115,12 @@ pub enum TokenKind {
     IfMacro,
     #[regex(r"%endif")]
     EndIfMacro,
+    #[regex(r"%for")]
+    ForMacro,
+    #[regex(r"%endfor")]
+    EndForMacro,
+    #[regex(r"in")]
+    In,
     #[regex(r"\$\S+")]
     MacroExpression(MacroExpression),
 
