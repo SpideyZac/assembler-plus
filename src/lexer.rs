@@ -87,7 +87,7 @@ pub enum TokenKind {
     #[regex(r"(?i)define")]
     Define,
 
-    #[regex(r"(?i)nop|hlt|add|sub|nor|and|xor|rsh|ldi|adi|jmp|brh|cal|ret|lod|str|cmp|mov|lsh|inc|dec|not")]
+    #[regex(r"(?i)nop|hlt|add|sub|nor|and|xor|rsh|ldi|adi|jmp|brh|cal|ret|lod|str")]
     Mnemonic(Mnemonic),
     #[regex(r"(?i)r\d+")]
     Register(Register),
@@ -115,7 +115,7 @@ pub enum TokenKind {
     IfMacro,
     #[regex(r"%endif")]
     EndIfMacro,
-    #[regex(r"\$[a-zA-Z_~|]\S*")]
+    #[regex(r"\$\S+")]
     MacroExpression(MacroExpression),
 
     #[regex(r"\S+")]
@@ -253,12 +253,6 @@ pub enum Mnemonic {
     Ret,
     Lod,
     Str,
-    Cmp,
-    Mov,
-    Lsh,
-    Inc,
-    Dec,
-    Not,
 }
 
 impl FromStr for Mnemonic {
@@ -282,12 +276,6 @@ impl FromStr for Mnemonic {
             "ret" => Ok(Mnemonic::Ret),
             "lod" => Ok(Mnemonic::Lod),
             "str" => Ok(Mnemonic::Str),
-            "cmp" => Ok(Mnemonic::Cmp),
-            "mov" => Ok(Mnemonic::Mov),
-            "lsh" => Ok(Mnemonic::Lsh),
-            "inc" => Ok(Mnemonic::Inc),
-            "dec" => Ok(Mnemonic::Dec),
-            "not" => Ok(Mnemonic::Not),
             _ => Err(()),
         }
     }
@@ -312,12 +300,6 @@ impl fmt::Display for Mnemonic {
             Mnemonic::Ret => write!(f, "ret"),
             Mnemonic::Lod => write!(f, "lod"),
             Mnemonic::Str => write!(f, "str"),
-            Mnemonic::Cmp => write!(f, "cmp"),
-            Mnemonic::Mov => write!(f, "mov"),
-            Mnemonic::Lsh => write!(f, "lsh"),
-            Mnemonic::Inc => write!(f, "inc"),
-            Mnemonic::Dec => write!(f, "dec"),
-            Mnemonic::Not => write!(f, "not"),
         }
     }
 }

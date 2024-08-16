@@ -24,6 +24,19 @@ fn generate_file(fp: &str) -> (Vec<Statement>, Span) {
 
     let mut statements = Vec::new();
 
+    if !fp.ends_with("core.ap") {
+        let (stmts, _) = generate_file(
+            env::current_exe()
+                .expect("Failed to get exe path")
+                .parent()
+                .expect("Failed to get exe dir")
+                .join("resources/core.ap")
+                .to_str()
+                .expect("Failed to get core file"),
+        );
+        statements.extend(stmts);
+    }
+
     loop {
         if tokens.peek().unwrap().kind == TokenKind::Eof {
             break;

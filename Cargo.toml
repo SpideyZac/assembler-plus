@@ -8,3 +8,6 @@ opt-level = 3
 
 [dependencies]
 laps = { version = "0.1.7", features = ["macros"] }
+
+[build-dependencies]
+copy_to_output = "2.2.0"

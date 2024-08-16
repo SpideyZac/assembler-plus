@@ -57,7 +57,7 @@ pub struct Codegen {
 
 impl Codegen {
     pub fn new(statements: Vec<Statement>) -> Self {
-        let mut res = Self {
+        Self {
             statements,
             symbol_table: HashMap::new(),
             labels_table: HashMap::new(),
@@ -66,48 +66,7 @@ impl Codegen {
             current_macro_defs: Vec::new(),
             next_macro_uuid: 0,
             uuid_stack: Vec::new(),
-        };
-
-        res.symbol_table.insert("eq".to_string(), 0);
-        res.symbol_table.insert("ne".to_string(), 1);
-        res.symbol_table.insert("ge".to_string(), 2);
-        res.symbol_table.insert("lt".to_string(), 3);
-        res.symbol_table.insert("=".to_string(), 0);
-        res.symbol_table.insert("!=".to_string(), 1);
-        res.symbol_table.insert(">=".to_string(), 2);
-        res.symbol_table.insert("<".to_string(), 3);
-        res.symbol_table.insert("z".to_string(), 0);
-        res.symbol_table.insert("nz".to_string(), 1);
-        res.symbol_table.insert("c".to_string(), 2);
-        res.symbol_table.insert("nc".to_string(), 3);
-        res.symbol_table.insert("zero".to_string(), 0);
-        res.symbol_table.insert("notzero".to_string(), 1);
-        res.symbol_table.insert("carry".to_string(), 2);
-        res.symbol_table.insert("notcarry".to_string(), 3);
-
-        let ports = [
-            "pixel_x",
-            "pixel_y",
-            "draw_pixel",
-            "clear_pixel",
-            "load_pixel",
-            "buffer_screen",
-            "clear_screen_buffer",
-            "write_char",
-            "buffer_chars",
-            "clear_chars_buffer",
-            "show_number",
-            "clear_number",
-            "signed_mode",
-            "unsigned_mode",
-            "rng",
-            "controller_input",
-        ];
-        for (i, port) in ports.iter().enumerate() {
-            res.symbol_table.insert(port.to_string(), i as i64 + 240);
         }
-
-        res
     }
 
     pub fn generate(&mut self) -> Result<String, Error> {
@@ -152,7 +111,7 @@ impl Codegen {
                     );
                 }
                 let name = def.args[0].get_name();
-                if self.macros.contains_key(name) {
+                if self.macros.contains_key(&name.to_lowercase()) {
                     eval_err!(def.mac.0.span, "redefinition of macro '{}'", name);
                 }
                 let args: Vec<String> = def.args[1..]
@@ -160,7 +119,7 @@ impl Codegen {
                     .map(|arg| arg.get_name().to_owned())
                     .collect();
                 self.macros
-                    .insert(name.to_owned(), Macro::new(args, def.body.clone()));
+                    .insert(name.to_lowercase(), Macro::new(args, def.body.clone()));
                 Ok(())
             }
             _ => Ok(()),
@@ -326,8 +285,8 @@ impl Codegen {
     }
 
     fn count_macro_call(&self, name_span: Span, name: &str) -> Result<u64, Error> {
-        let m = self.macros.get(name);
-        let m = m.ok_or_else(|| log_error!(name_span, "undefined macro '{}'", name))?;
+        let m = self.macros.get(&name.to_lowercase());
+        let m = m.ok_or_else(|| log_error!(name_span, "undefined macro or mnemonic '{}'", name))?;
 
         let mut len = 0;
         for stmt in m.body.iter() {
@@ -343,8 +302,8 @@ impl Codegen {
         name: &str,
         args: &[Expression],
     ) -> Result<String, Error> {
-        let m = self.macros.get(name);
-        let m = m.ok_or_else(|| log_error!(name_span, "undefined macro '{}'", name))?;
+        let m = self.macros.get(&name.to_lowercase());
+        let m = m.ok_or_else(|| log_error!(name_span, "undefined macro or mnemonic '{}'", name))?;
         if m.args.len() != args.len() {
             eval_err!(
                 instruction_span,
@@ -591,52 +550,6 @@ impl Codegen {
                             eval_err!(span, "offset value {} out of range [-8, 7]", masked);
                         }
                         15 << 12 | (rd << 8) | (rs << 4) | offset
-                    }
-                    Mnemonic::Cmp => {
-                        if operands.len() != 2 {
-                            eval_err!(span, "expected 2 operands, got {}", operands.len());
-                        }
-                        let rs = self.eval_expression(&operands[0], 4)?;
-                        let rt = self.eval_expression(&operands[1], 4)?;
-                        3 << 12 | (rs << 8) | (rt << 4)
-                    }
-                    Mnemonic::Mov => {
-                        if operands.len() != 2 {
-                            eval_err!(span, "expected 2 operands, got {}", operands.len());
-                        }
-                        let rd = self.eval_expression(&operands[0], 4)?;
-                        let rs = self.eval_expression(&operands[1], 4)?;
-                        2 << 12 | (rd << 8) | rs
-                    }
-                    Mnemonic::Lsh => {
-                        if operands.len() != 2 {
-                            eval_err!(span, "expected 2 operands, got {}", operands.len());
-                        }
-                        let rd = self.eval_expression(&operands[0], 4)?;
-                        let rs = self.eval_expression(&operands[1], 4)?;
-                        2 << 12 | (rd << 8) | (rd << 4) | rs
-                    }
-                    Mnemonic::Inc => {
-                        if operands.len() != 1 {
-                            eval_err!(span, "expected 1 operands, got {}", operands.len());
-                        }
-                        let rd = self.eval_expression(&operands[0], 4)?;
-                        9 << 12 | (rd << 8) | 1
-                    }
-                    Mnemonic::Dec => {
-                        if operands.len() != 1 {
-                            eval_err!(span, "expected 1 operands, got {}", operands.len());
-                        }
-                        let rd = self.eval_expression(&operands[0], 4)?;
-                        9 << 12 | (rd << 8) | 0xff
-                    }
-                    Mnemonic::Not => {
-                        if operands.len() != 2 {
-                            eval_err!(span, "expected 2 operands, got {}", operands.len());
-                        }
-                        let rd = self.eval_expression(&operands[0], 4)?;
-                        let rs = self.eval_expression(&operands[1], 4)?;
-                        4 << 12 | (rd << 8) | rs
                     }
                 };
                 Ok(format!("{:016b}\n", machine_code))

@@ -228,7 +228,7 @@ impl<TS: TokenStream<Token = Token>> Parse<TS> for Unary {
 }
 
 impl Spanned for Unary {
-    fn span(&self) -> laps::span::Span {
+    fn span(&self) -> Span {
         self.ops.try_span().map_or_else(
             || self.primary.span(),
             |mut span| {
@@ -252,7 +252,7 @@ pub enum Primary {
 }
 
 impl Spanned for Primary {
-    fn span(&self) -> laps::span::Span {
+    fn span(&self) -> Span {
         match self {
             Primary::Register(reg) => reg.span(),
             Primary::Label(lbl) => lbl.span(),
