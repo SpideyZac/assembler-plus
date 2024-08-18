@@ -37,13 +37,13 @@ token_ast! {
 
         [define] => { kind: TokenKind::Define, prompt: "define" },
 
-        [+-] => { kind: TokenKind::Plus | TokenKind::Minus, prompt: "Plus" },
-        [*/] => { kind: TokenKind::Mult | TokenKind::Div, prompt: "Minus" },
-        [unary] => { kind: TokenKind::Not | TokenKind::Plus | TokenKind::Minus, prompt: "Not" },
+        [+-] => { kind: TokenKind::Plus | TokenKind::Minus, prompt: "plus or minus" },
+        [*/] => { kind: TokenKind::Mult | TokenKind::Div, prompt: "multiply or divide" },
+        [unary] => { kind: TokenKind::Not | TokenKind::Plus | TokenKind::Minus, prompt: "unary" },
         [&] => { kind: TokenKind::And, prompt: "And" },
         [|] => { kind: TokenKind::Or, prompt: "Or" },
-        [equality] => { kind: TokenKind::Eq | TokenKind::Ne, prompt: "comparison" },
-        [cmp] => { kind: TokenKind::Ge | TokenKind::Gt | TokenKind::Le | TokenKind::Lt, prompt: "Ge" },
+        [equality] => { kind: TokenKind::Eq | TokenKind::Ne, prompt: "equality" },
+        [cmp] => { kind: TokenKind::Ge | TokenKind::Gt | TokenKind::Le | TokenKind::Lt, prompt: "comparison" },
         [lparen] => { kind: TokenKind::LeftParen, prompt: "left paren" },
         [rparen] => { kind: TokenKind::RightParen, prompt: "right paren" },
 
