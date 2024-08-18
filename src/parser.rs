@@ -1,5 +1,6 @@
 use crate::lexer::{Token, TokenKind};
 
+use derivative::Derivative;
 use laps::{
     prelude::*,
     span::{Span, TrySpan},
@@ -49,12 +50,15 @@ token_ast! {
         [mac] => { kind: TokenKind::Macro, prompt: "macro" },
         [endmac] => { kind: TokenKind::EndMacro, prompt: "endmacro" },
         [includemac] => { kind: TokenKind::IncludeMacro, prompt: "include macro" },
-        [ifdefmacro] => { kind: TokenKind::IfDefMacro, prompt: "ifdef macro" },
         [ifmacro] => { kind: TokenKind::IfMacro, prompt: "if macro" },
+        [ifdefmacro] => { kind: TokenKind::IfDefMacro, prompt: "ifdef macro" },
+        [elifmacro] => { kind: TokenKind::ElifMacro, prompt: "elif macro" },
+        [elifdefmacro] => { kind: TokenKind::ElifDefMacro, prompt: "elifdef macro" },
+        [else] => { kind: TokenKind::ElseMacro, prompt: "else macro" },
+        [endif] => { kind: TokenKind::EndIfMacro, prompt: "endif macro" },
         [formacro] => { kind: TokenKind::ForMacro, prompt: "for macro" },
         [in] => { kind: TokenKind::In, prompt: "in" },
         [endfor] => { kind: TokenKind::EndForMacro, prompt: "end for" },
-        [endif] => { kind: TokenKind::EndIfMacro, prompt: "endif macro" },
         [macexpr] => { kind: TokenKind::MacroExpression(_), prompt: "macro expression" },
 
         [eof] => { kind: TokenKind::Eof, prompt: "end of file" },
@@ -103,8 +107,7 @@ pub enum Statement {
     Label(Token![label]),
     MacroDefinition(MacroDefinition),
     IncludeMacro(IncludeMacro),
-    IfDefMacro(IfDefMacro),
-    IfMacro(IfMacro),
+    If(IfChain),
     ForMacro(ForMacro),
     #[allow(dead_code)]
     Newline(Token![nl]),
@@ -120,24 +123,87 @@ pub struct Define {
 
 #[derive(Parse, Debug, Clone)]
 #[token(Token)]
-pub struct IfDefMacro {
-    _ifdef_macro: Token![ifdefmacro],
-    pub identifier: Ident,
-    _nl: Token![nl],
-    pub stmts: Vec<Statement>,
-    _end_if: Token![endif],
-    _nl2: Token![nl],
+pub struct IfChain {
+    pub init_if: If<Token![ifmacro], Token![ifdefmacro]>,
+    pub elifs: Vec<If<Token![elifmacro], Token![elifdefmacro]>>,
+    pub else_block: Option<Else>,
+    _endif: Token![endif],
 }
 
 #[derive(Parse, Debug, Clone)]
 #[token(Token)]
-pub struct IfMacro {
-    _if_macro: Token![ifmacro],
+pub struct Else {
+    _else_macro: Token![else],
+    _nl: Token![nl],
+    pub stmts: Vec<Statement>,
+}
+
+#[derive(Debug, Clone)]
+pub enum If<I, D> {
+    If(IfMacro<I>),
+    Def(IfDefMacro<D>),
+}
+
+impl<TS: TokenStream<Token = Token>, I: Parse<TS>, D: Parse<TS>> Parse<TS> for If<I, D> {
+    fn parse(tokens: &mut TS) -> laps::span::Result<Self> {
+        if I::maybe(tokens)? {
+            Ok(Self::If(tokens.parse()?))
+        } else {
+            Ok(Self::Def(tokens.parse()?))
+        }
+    }
+
+    fn maybe(tokens: &mut TS) -> laps::span::Result<bool> {
+        Ok(I::maybe(tokens)? || D::maybe(tokens)?)
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Debug, Clone)]
+pub struct IfMacro<T> {
+    _ifdef_macro: T,
     pub expression: Expression,
     _nl: Token![nl],
     pub stmts: Vec<Statement>,
-    _end_if: Token![endif],
-    _nl2: Token![nl],
+}
+
+impl<TS: TokenStream<Token = Token>, T: Parse<TS>> Parse<TS> for IfMacro<T> {
+    fn parse(tokens: &mut TS) -> laps::span::Result<Self> {
+        Ok(Self {
+            _ifdef_macro: tokens.parse()?,
+            expression: tokens.parse()?,
+            _nl: tokens.parse()?,
+            stmts: tokens.parse()?,
+        })
+    }
+
+    fn maybe(tokens: &mut TS) -> laps::span::Result<bool> {
+        T::maybe(tokens)
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Debug, Clone)]
+pub struct IfDefMacro<T> {
+    _ifdef_macro: T,
+    pub identifier: Ident,
+    _nl: Token![nl],
+    pub stmts: Vec<Statement>,
+}
+
+impl<TS: TokenStream<Token = Token>, T: Parse<TS>> Parse<TS> for IfDefMacro<T> {
+    fn parse(tokens: &mut TS) -> laps::span::Result<Self> {
+        Ok(Self {
+            _ifdef_macro: tokens.parse()?,
+            identifier: tokens.parse()?,
+            _nl: tokens.parse()?,
+            stmts: tokens.parse()?,
+        })
+    }
+
+    fn maybe(tokens: &mut TS) -> laps::span::Result<bool> {
+        T::maybe(tokens)
+    }
 }
 
 #[derive(Parse, Debug, Clone)]

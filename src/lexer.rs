@@ -113,6 +113,12 @@ pub enum TokenKind {
     IfDefMacro,
     #[regex(r"%if")]
     IfMacro,
+    #[regex(r"%elif")]
+    ElifMacro,
+    #[regex(r"%elifdef")]
+    ElifDefMacro,
+    #[regex(r"%else")]
+    ElseMacro,
     #[regex(r"%endif")]
     EndIfMacro,
     #[regex(r"%for")]

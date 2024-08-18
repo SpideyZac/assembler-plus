@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use crate::lexer::{Char, Mnemonic, TokenKind};
 use crate::parser::{
-    self, Comparison, Define, Equality, Expression, Factor, Instruction, LogicAnd, Primary,
+    self, Comparison, Define, Equality, Expression, Factor, If, Instruction, LogicAnd, Primary,
     Statement, Term, Unary, __token_ast_Token,
 };
 
@@ -435,6 +435,38 @@ impl Codegen {
         Ok(())
     }
 
+    fn if_len<I, D>(&self, if_macro: &If<I, D>) -> Result<(u64, bool), Error> {
+        match if_macro {
+            parser::If::If(if_macro) => {
+                let value = self.eval_expression(&if_macro.expression, 64)?;
+                if value != Value::Int(0) && value != Value::String(String::new()) {
+                    Ok((
+                        if_macro
+                            .stmts
+                            .iter()
+                            .try_fold(0, |acc, stmt| Ok(acc + self.statement_len(stmt)?))?,
+                        true,
+                    ))
+                } else {
+                    Ok((0, false))
+                }
+            }
+            parser::If::Def(ifdef) => {
+                if self.symbol_table.contains_key(ifdef.identifier.get_name()) {
+                    Ok((
+                        ifdef
+                            .stmts
+                            .iter()
+                            .try_fold(0, |acc, stmt| Ok(acc + self.statement_len(stmt)?))?,
+                        true,
+                    ))
+                } else {
+                    Ok((0, false))
+                }
+            }
+        }
+    }
+
     fn statement_len(&self, stmt: &Statement) -> Result<u64, Error> {
         match stmt {
             Statement::Instruction(Instruction {
@@ -449,26 +481,28 @@ impl Codegen {
             Statement::Label(_) => Ok(0),
             Statement::MacroDefinition(_) => Ok(0),
             Statement::IncludeMacro(_) => Ok(0),
-            Statement::IfDefMacro(ifdef) => {
-                if self.symbol_table.contains_key(ifdef.identifier.get_name()) {
-                    ifdef
-                        .stmts
-                        .iter()
-                        .try_fold(0, |acc, stmt| Ok(acc + self.statement_len(stmt)?))
-                } else {
-                    Ok(0)
+            Statement::If(if_chain) => {
+                let (len, done) = self.if_len(&if_chain.init_if)?;
+                if done {
+                    return Ok(len);
                 }
-            }
-            Statement::IfMacro(if_macro) => {
-                let value = self.eval_expression(&if_macro.expression, 64)?;
-                if value != Value::Int(0) && value != Value::String(String::new()) {
-                    if_macro
-                        .stmts
-                        .iter()
-                        .try_fold(0, |acc, stmt| Ok(acc + self.statement_len(stmt)?))
-                } else {
-                    Ok(0)
+                for elif in &if_chain.elifs {
+                    let (len, done) = self.if_len(elif)?;
+                    if done {
+                        return Ok(len);
+                    }
                 }
+                Ok(if_chain
+                    .else_block
+                    .as_ref()
+                    .map(|else_block| {
+                        else_block
+                            .stmts
+                            .iter()
+                            .try_fold(0, |acc, stmt| Ok(acc + self.statement_len(stmt)?))
+                    })
+                    .transpose()?
+                    .unwrap_or(0))
             }
             Statement::ForMacro(for_macro) => {
                 Ok(match self.eval_expression(&for_macro.expr, 64)? {
@@ -540,6 +574,36 @@ impl Codegen {
         Ok(output)
     }
 
+    fn expand_if<I, D>(&mut self, if_block: &If<I, D>) -> Result<Option<String>, Error> {
+        match if_block {
+            If::If(ifmac) => {
+                let value = self.eval_expression(&ifmac.expression, 64)?;
+                if value != Value::Int(0) && value != Value::String(String::new()) {
+                    let mut output = String::new();
+                    for stmt in ifmac.stmts.iter() {
+                        let out = self.generate_stmt(stmt)?;
+                        output += &out;
+                    }
+                    return Ok(Some(output));
+                }
+            }
+            If::Def(ifdef) => {
+                if self
+                    .symbol_table
+                    .contains_key(&ifdef.identifier.get_name().to_lowercase())
+                {
+                    let mut output = String::new();
+                    for stmt in &ifdef.stmts {
+                        let out = self.generate_stmt(stmt)?;
+                        output += &out;
+                    }
+                    return Ok(Some(output));
+                }
+            }
+        }
+        Ok(None)
+    }
+
     fn generate_stmt(&mut self, stmt: &Statement) -> Result<String, Error> {
         match stmt {
             Statement::Define(_) => Ok(String::new()),
@@ -550,32 +614,24 @@ impl Codegen {
                 }
                 Ok(String::new())
             }
-            Statement::IfDefMacro(ifdef) => {
-                if self
-                    .symbol_table
-                    .contains_key(&ifdef.identifier.get_name().to_lowercase())
-                {
-                    let mut output = String::new();
-                    for stmt in &ifdef.stmts {
-                        let out = self.generate_stmt(stmt)?;
-                        output += &out;
-                    }
-                    Ok(output)
-                } else {
-                    Ok(String::new())
+            Statement::If(if_chain) => {
+                if let Some(output) = self.expand_if(&if_chain.init_if)? {
+                    return Ok(output);
                 }
-            }
-            Statement::IfMacro(ifmac) => {
-                let value = self.eval_expression(&ifmac.expression, 64)?;
-                if value != Value::Int(0) && value != Value::String(String::new()) {
-                    let mut output = String::new();
-                    for stmt in ifmac.stmts.iter() {
-                        let out = self.generate_stmt(stmt)?;
-                        output += &out;
+                for elif in &if_chain.elifs {
+                    if let Some(output) = self.expand_if(elif)? {
+                        return Ok(output);
                     }
-                    Ok(output)
-                } else {
-                    Ok(String::new())
+                }
+                match &if_chain.else_block {
+                    Some(else_block) => {
+                        let mut output = String::new();
+                        for stmt in &else_block.stmts {
+                            output += &self.generate_stmt(stmt)?;
+                        }
+                        Ok(output)
+                    }
+                    None => Ok(String::new()),
                 }
             }
             Statement::ForMacro(for_macro) => {
