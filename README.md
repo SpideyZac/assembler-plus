@@ -15,7 +15,18 @@ str r2 r1 0
 WRITE_CHAR 5
 ```
 
-## Conditional ASM 🟢
+You can also define macro's that can take infinite argument's
+
+```asm
+%macro PUSH regs +
+    %for reg in $regs
+        STR r14 $reg
+        INC r14
+    %endfor
+%endmacro
+```
+
+### Conditional ASM 🟢
 Conditional ASM allows you to include or exclude certain code blocks if a user defined condition is met
 
 ```asm
@@ -39,7 +50,7 @@ add r1 r2 r3
 %endif
 ```
 
-## For loops 🟢
+### For loops 🟢
 For loops allows you to reuse code in a loop
 
 ```asm
@@ -54,7 +65,7 @@ ldi r1 buffer_chars
 str r1 r0
 ```
 
-## Include Files 🟢
+### Include Files 🟢
 The include files feature allows you to import another file into your code.
 
 ```asm
@@ -62,7 +73,7 @@ The include files feature allows you to import another file into your code.
 cal .abc123
 ```
 
-## Compile time arithmatic 🟡 - Maybe not possible now
+### Compile time arithmatic 🟡 - Maybe not possible now
 Compile time arithmatic allows you to perform arithmatic on compile time known values (constants, registers with known values, memory slots with known values, etc.)
 
 ```asm

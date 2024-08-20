@@ -3,7 +3,7 @@ use crate::lexer::{Token, TokenKind};
 use derivative::Derivative;
 use laps::{
     prelude::*,
-    span::{Span, TrySpan},
+    span::{FileType, Span, TrySpan},
 };
 
 token_ast! {
@@ -36,6 +36,9 @@ token_ast! {
         [rawstr] => { kind: TokenKind::RawString(_), prompt: "string literal" },
 
         [define] => { kind: TokenKind::Define, prompt: "define" },
+
+        [+*] => { kind: TokenKind::Plus | TokenKind::Mult, prompt: "plus or star" },
+        [sequence] => { kind: TokenKind::RawString(_) | TokenKind::MacroExpression(_), prompt: "sequence" },
 
         [+-] => { kind: TokenKind::Plus | TokenKind::Minus, prompt: "plus or minus" },
         [*/] => { kind: TokenKind::Mult | TokenKind::Div, prompt: "multiply or divide" },
@@ -113,12 +116,36 @@ pub enum Statement {
     Newline(Token![nl]),
 }
 
+impl Spanned for Statement {
+    fn span(&self) -> Span {
+        match self {
+            Statement::Instruction(instr) => instr.span(),
+            Statement::Define(def) => def.span(),
+            Statement::Label(lbl) => lbl.span(),
+            Statement::MacroDefinition(macro_def) => macro_def.span(),
+            Statement::IncludeMacro(include) => include.span(),
+            Statement::If(if_macro) => if_macro.span(),
+            Statement::ForMacro(for_macro) => for_macro.span(),
+            Statement::Newline(nl) => nl.span(),
+        }
+    }
+}
+
 #[derive(Parse, Debug, Clone, PartialEq)]
 #[token(Token)]
 pub struct Define {
     _define: Token![define],
     pub name: Ident,
     pub value: Expression,
+    _nl: Token![nl],
+}
+
+impl Spanned for Define {
+    fn span(&self) -> Span {
+        let mut span = self._define.span();
+        span.update_end(self.value.span());
+        span
+    }
 }
 
 #[derive(Parse, Debug, Clone)]
@@ -128,6 +155,14 @@ pub struct IfChain {
     pub elifs: Vec<If<Token![elifmacro], Token![elifdefmacro]>>,
     pub else_block: Option<Else>,
     _endif: Token![endif],
+}
+
+impl Spanned for IfChain {
+    fn span(&self) -> Span {
+        let mut span = self.init_if.span();
+        span.update_end(self._endif.span());
+        span
+    }
 }
 
 #[derive(Parse, Debug, Clone)]
@@ -158,6 +193,15 @@ impl<TS: TokenStream<Token = Token>, I: Parse<TS>, D: Parse<TS>> Parse<TS> for I
     }
 }
 
+impl<I: Spanned, D: Spanned> Spanned for If<I, D> {
+    fn span(&self) -> Span {
+        match self {
+            If::If(if_macro) => if_macro.span(),
+            If::Def(def) => def.span(),
+        }
+    }
+}
+
 #[derive(Derivative)]
 #[derivative(Debug, Clone)]
 pub struct IfMacro<T> {
@@ -179,6 +223,14 @@ impl<TS: TokenStream<Token = Token>, T: Parse<TS>> Parse<TS> for IfMacro<T> {
 
     fn maybe(tokens: &mut TS) -> laps::span::Result<bool> {
         T::maybe(tokens)
+    }
+}
+
+impl<T: Spanned> Spanned for IfMacro<T> {
+    fn span(&self) -> Span {
+        let mut span = self._ifdef_macro.span();
+        span.update_end(self.stmts.try_span().unwrap_or(self._nl.span()));
+        span
     }
 }
 
@@ -206,17 +258,33 @@ impl<TS: TokenStream<Token = Token>, T: Parse<TS>> Parse<TS> for IfDefMacro<T> {
     }
 }
 
+impl<T: Spanned> Spanned for IfDefMacro<T> {
+    fn span(&self) -> Span {
+        let mut span = self._ifdef_macro.span();
+        span.update_end(self.stmts.try_span().unwrap_or(self._nl.span()));
+        span
+    }
+}
+
 #[derive(Parse, Debug, Clone)]
 #[token(Token)]
 pub struct ForMacro {
     _for_macro: Token![formacro],
     pub ident: Ident,
     _in: Token![in],
-    pub expr: Expression,
+    pub expr: Token![sequence],
     _nl: Token![nl],
     pub stmts: Vec<Statement>,
     _end_for: Token![endfor],
     _nl2: Token![nl],
+}
+
+impl Spanned for ForMacro {
+    fn span(&self) -> Span {
+        let mut span = self._for_macro.span();
+        span.update_end(self._nl2.span());
+        span
+    }
 }
 
 #[derive(Parse, Debug, Clone)]
@@ -227,12 +295,33 @@ pub struct IncludeMacro {
     _nl: Token![nl],
 }
 
+impl Spanned for IncludeMacro {
+    fn span(&self) -> Span {
+        let mut span = self._includemac.span();
+        span.update_end(self._nl.span());
+        span
+    }
+}
+
 #[derive(Parse, Debug, Clone)]
 #[token(Token)]
 pub struct Instruction {
     pub mnemonic: Mnemonic,
     pub operands: Vec<Expression>,
     _nl: Token![nl],
+}
+
+impl Instruction {
+    pub fn new(mnemonic: Mnemonic, operands: Vec<Expression>) -> Self {
+        Self {
+            mnemonic,
+            operands,
+            _nl: __token_ast_Token::Token0(Token::new(
+                TokenKind::Newline,
+                Span::new(FileType::Buffer),
+            )),
+        }
+    }
 }
 
 impl Spanned for Instruction {
@@ -327,7 +416,6 @@ impl Spanned for Unary {
 #[derive(Parse, Debug, Clone, PartialEq)]
 #[token(Token)]
 pub enum Primary {
-    String(Token![rawstr]),
     Register(Token![register]),
     Label(Token![label]),
     Int(Token![int]),
@@ -340,7 +428,6 @@ pub enum Primary {
 impl Spanned for Primary {
     fn span(&self) -> Span {
         match self {
-            Primary::String(string) => string.span(),
             Primary::Register(reg) => reg.span(),
             Primary::Label(lbl) => lbl.span(),
             Primary::Int(int) => int.span(),
@@ -356,13 +443,71 @@ impl Spanned for Primary {
     }
 }
 
-#[derive(Parse, Debug, Clone)]
-#[token(Token)]
+#[derive(Debug, Clone)]
 pub struct MacroDefinition {
     pub mac: Token![mac],
     pub args: Vec<Ident>,
+    pub quantifier: Option<Token![+*]>,
     _nl2: Token![nl],
     pub body: Vec<Statement>,
     _end: Token![endmac],
     _nl: Token![nl],
+}
+
+impl<TS: TokenStream<Token = Token>> Parse<TS> for MacroDefinition {
+    fn parse(tokens: &mut TS) -> laps::span::Result<Self> {
+        let mac = tokens.parse()?;
+        let mut args = vec![];
+        loop {
+            if matches!(
+                tokens.peek2()?,
+                (
+                    Token {
+                        kind: TokenKind::Plus | TokenKind::Mult,
+                        ..
+                    },
+                    Token {
+                        kind: TokenKind::Newline | TokenKind::Eof,
+                        ..
+                    },
+                )
+            ) {
+                break;
+            }
+            if !Ident::maybe(tokens)? {
+                break;
+            }
+            args.push(tokens.parse()?);
+        }
+        let quantifier = if !args.is_empty() {
+            tokens.parse()?
+        } else {
+            None
+        };
+        let _nl2 = tokens.parse()?;
+        let body = tokens.parse()?;
+        let _end = tokens.parse()?;
+        let _nl = tokens.parse()?;
+        Ok(Self {
+            mac,
+            args,
+            quantifier,
+            _nl2,
+            body,
+            _end,
+            _nl,
+        })
+    }
+
+    fn maybe(tokens: &mut TS) -> laps::span::Result<bool> {
+        <Token![mac]>::maybe(tokens)
+    }
+}
+
+impl Spanned for MacroDefinition {
+    fn span(&self) -> Span {
+        let mut span = self.mac.span();
+        span.update_end(self._nl.span());
+        span
+    }
 }
