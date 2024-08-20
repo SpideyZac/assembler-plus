@@ -48,7 +48,7 @@ fn str_lit(s: &str) -> Option<RawString> {
 #[token_kind]
 #[derive(Debug, Tokenize)]
 pub enum TokenKind {
-    #[skip(r"[ \t\r]+|;.*|#.*|/.*")] // We will track newlines separately
+    #[skip(r"[ \t\r]+|;.*|#.*|//.*")] // We will track newlines separately
     _Skip,
     #[regex(r"\n")]
     Newline,
