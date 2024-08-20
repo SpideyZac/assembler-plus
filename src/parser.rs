@@ -37,6 +37,7 @@ token_ast! {
         [rawstr] => { kind: TokenKind::RawString(_), prompt: "string literal" },
 
         [define] => { kind: TokenKind::Define, prompt: "define" },
+        [undefine] => { kind: TokenKind::Undefine, prompt: "undefine" },
 
         [+*] => { kind: TokenKind::Plus | TokenKind::Mult, prompt: "plus or star" },
         [sequence] => { kind: TokenKind::RawString(_) | TokenKind::MacroExpression(_), prompt: "sequence" },
@@ -132,6 +133,7 @@ impl Spanned for Ident {
 pub enum Statement {
     Instruction(Instruction),
     Define(Define),
+    Undefine(Undefine),
     Label(Token![label]),
     MacroDefinition(MacroDefinition),
     IncludeMacro(IncludeMacro),
@@ -146,6 +148,7 @@ impl Spanned for Statement {
         match self {
             Statement::Instruction(instr) => instr.span(),
             Statement::Define(def) => def.span(),
+            Statement::Undefine(undef) => undef.span(),
             Statement::Label(lbl) => lbl.span(),
             Statement::MacroDefinition(macro_def) => macro_def.span(),
             Statement::IncludeMacro(include) => include.span(),
@@ -168,7 +171,23 @@ pub struct Define {
 impl Spanned for Define {
     fn span(&self) -> Span {
         let mut span = self._define.span();
-        span.update_end(self.value.span());
+        span.update_end(self._nl.span());
+        span
+    }
+}
+
+#[derive(Parse, Debug, Clone, PartialEq)]
+#[token(Token)]
+pub struct Undefine {
+    _udefine: Token![undefine],
+    pub name: Ident,
+    _nl: Token![nl],
+}
+
+impl Spanned for Undefine {
+    fn span(&self) -> Span {
+        let mut span = self._udefine.span();
+        span.update_end(self._nl.span());
         span
     }
 }

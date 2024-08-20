@@ -5,7 +5,7 @@ use crate::common::{eval_expression, expression_map_primary};
 use crate::lexer::{Char, Label, Token, TokenKind};
 use crate::parser::{
     Comparison, Define, Equality, Expression, Factor, If, Instruction, LogicAnd, Mnemonic, Primary,
-    Statement, Term, Unary, __token_ast_Token,
+    Statement, Term, Unary, Undefine, __token_ast_Token,
 };
 
 use laps::log_error;
@@ -83,6 +83,15 @@ impl Assembler {
             ident.to_lowercase(),
             eval_expression(&define.value, Some(&self.symbol_table), None, None)?,
         );
+        Ok(vec![])
+    }
+
+    fn undefine(&mut self, undefine: &Undefine) -> Result<Vec<Statement>, Error> {
+        let ident = undefine.name.get_name();
+        if !self.symbol_table.contains_key(&ident.to_lowercase()) {
+            eval_err!(undefine.name.span(), "undefined symbol '{ident}'");
+        }
+        self.symbol_table.remove(&ident.to_lowercase());
         Ok(vec![])
     }
 
@@ -245,6 +254,7 @@ impl Assembler {
     fn generate_stmt(&mut self, stmt: Statement) -> Result<Vec<Statement>, Error> {
         match stmt {
             Statement::Define(define) => self.generate_define(&define),
+            Statement::Undefine(undefine) => self.undefine(&undefine),
             Statement::Instruction(ast) => self.generate_instruction(ast),
             Statement::Label(lbl) => self.generate_label(&lbl),
             Statement::If(if_chain) => {

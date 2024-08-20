@@ -86,6 +86,8 @@ pub enum TokenKind {
 
     #[regex(r"(?i)define")]
     Define,
+    #[regex(r"(?i)undefine")]
+    Undefine,
 
     #[regex(r"(?i)nop|hlt|add|sub|nor|and|xor|rsh|ldi|adi|jmp|brh|cal|ret|lod|str")]
     Mnemonic(Mnemonic),
