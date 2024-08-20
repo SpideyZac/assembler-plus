@@ -2,6 +2,7 @@ use crate::lexer::{Token, TokenKind};
 
 use derivative::Derivative;
 use laps::{
+    log_warning,
     prelude::*,
     span::{FileType, Span, TrySpan},
 };
@@ -68,8 +69,7 @@ token_ast! {
     }
 }
 
-#[derive(Parse, Debug, Clone, PartialEq)]
-#[token(Token)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Ident {
     identifier: Token![ident],
 }
@@ -93,6 +93,29 @@ impl Ident {
             TokenKind::In => "in",
             _ => unreachable!(),
         }
+    }
+}
+
+impl<TS: TokenStream<Token = Token>> Parse<TS> for Ident {
+    fn parse(tokens: &mut TS) -> laps::span::Result<Self> {
+        let res = Self {
+            identifier: <Token![ident]>::parse(tokens)?,
+        };
+        if !matches!(res.identifier.0.kind, TokenKind::Identifier(_))
+            && !["!=", ">=", "<"].contains(&res.get_name())
+        // Allow symbols used in std library
+        {
+            log_warning!(
+                res.span(),
+                "Identifier uses weird symbols, weird symbols are not fully supported and only for backwards \
+                compatibility, expect unexpected results"
+            );
+        }
+        Ok(res)
+    }
+
+    fn maybe(tokens: &mut TS) -> laps::span::Result<bool> {
+        <Token![ident]>::maybe(tokens)
     }
 }
 
