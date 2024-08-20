@@ -198,7 +198,10 @@ impl Assembler {
         Ok(output)
     }
 
-    fn expand_if<I, D>(&mut self, if_block: If<I, D>) -> Result<Option<Vec<Statement>>, Error> {
+    fn expand_if<I, D, U>(
+        &mut self,
+        if_block: If<I, D, U>,
+    ) -> Result<Option<Vec<Statement>>, Error> {
         match if_block {
             If::If(ifmac) => {
                 let value =
@@ -218,6 +221,18 @@ impl Assembler {
                 {
                     let mut output = Vec::new();
                     for stmt in ifdef.stmts {
+                        output.extend(self.generate_stmt(stmt)?);
+                    }
+                    return Ok(Some(output));
+                }
+            }
+            If::Undef(undef) => {
+                if !self
+                    .symbol_table
+                    .contains_key(&undef.identifer.get_name().to_lowercase())
+                {
+                    let mut output = Vec::new();
+                    for stmt in undef.stmts {
                         output.extend(self.generate_stmt(stmt)?);
                     }
                     return Ok(Some(output));
@@ -380,9 +395,18 @@ impl Assembler {
         match primary {
             Primary::Identifier(ref ident) => {
                 *primary = Primary::Int(__token_ast_Token::Token4(Token::new(
-                    TokenKind::Int(*self.symbol_table.get(ident.get_name()).ok_or_else(|| {
-                        log_error!(primary.span(), "Undefined symbol '{}'", ident.get_name())
-                    })? as i16),
+                    TokenKind::Int(
+                        *self
+                            .symbol_table
+                            .get(&ident.get_name().to_lowercase())
+                            .ok_or_else(|| {
+                                log_error!(
+                                    primary.span(),
+                                    "Undefined symbol '{}'",
+                                    ident.get_name()
+                                )
+                            })? as i16,
+                    ),
                     primary.span(),
                 )));
             }

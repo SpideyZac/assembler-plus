@@ -56,8 +56,10 @@ token_ast! {
         [includemac] => { kind: TokenKind::IncludeMacro, prompt: "include macro" },
         [ifmacro] => { kind: TokenKind::IfMacro, prompt: "if macro" },
         [ifdefmacro] => { kind: TokenKind::IfDefMacro, prompt: "ifdef macro" },
+        [ifundefmacro] => { kind: TokenKind::IfUndefMacro, prompt: "ifundef macro" },
         [elifmacro] => { kind: TokenKind::ElifMacro, prompt: "elif macro" },
         [elifdefmacro] => { kind: TokenKind::ElifDefMacro, prompt: "elifdef macro" },
+        [elifundefmacro] => { kind: TokenKind::ElifUndefMacro, prompt: "elifundef macro" },
         [else] => { kind: TokenKind::ElseMacro, prompt: "else macro" },
         [endif] => { kind: TokenKind::EndIfMacro, prompt: "endif macro" },
         [formacro] => { kind: TokenKind::ForMacro, prompt: "for macro" },
@@ -174,8 +176,8 @@ impl Spanned for Define {
 #[derive(Parse, Debug, Clone)]
 #[token(Token)]
 pub struct IfChain {
-    pub init_if: If<Token![ifmacro], Token![ifdefmacro]>,
-    pub elifs: Vec<If<Token![elifmacro], Token![elifdefmacro]>>,
+    pub init_if: If<Token![ifmacro], Token![ifdefmacro], Token![ifundefmacro]>,
+    pub elifs: Vec<If<Token![elifmacro], Token![elifdefmacro], Token![elifundefmacro]>>,
     pub else_block: Option<Else>,
     _endif: Token![endif],
 }
@@ -197,30 +199,36 @@ pub struct Else {
 }
 
 #[derive(Debug, Clone)]
-pub enum If<I, D> {
+pub enum If<I, D, U> {
     If(IfMacro<I>),
     Def(IfDefMacro<D>),
+    Undef(IfUndefMacro<U>),
 }
 
-impl<TS: TokenStream<Token = Token>, I: Parse<TS>, D: Parse<TS>> Parse<TS> for If<I, D> {
+impl<TS: TokenStream<Token = Token>, I: Parse<TS>, D: Parse<TS>, U: Parse<TS>> Parse<TS>
+    for If<I, D, U>
+{
     fn parse(tokens: &mut TS) -> laps::span::Result<Self> {
         if I::maybe(tokens)? {
             Ok(Self::If(tokens.parse()?))
-        } else {
+        } else if D::maybe(tokens)? {
             Ok(Self::Def(tokens.parse()?))
+        } else {
+            Ok(Self::Undef(tokens.parse()?))
         }
     }
 
     fn maybe(tokens: &mut TS) -> laps::span::Result<bool> {
-        Ok(I::maybe(tokens)? || D::maybe(tokens)?)
+        Ok(I::maybe(tokens)? || D::maybe(tokens)? || U::maybe(tokens)?)
     }
 }
 
-impl<I: Spanned, D: Spanned> Spanned for If<I, D> {
+impl<I: Spanned, D: Spanned, U: Spanned> Spanned for If<I, D, U> {
     fn span(&self) -> Span {
         match self {
             If::If(if_macro) => if_macro.span(),
             If::Def(def) => def.span(),
+            If::Undef(undef) => undef.span(),
         }
     }
 }
@@ -284,6 +292,38 @@ impl<TS: TokenStream<Token = Token>, T: Parse<TS>> Parse<TS> for IfDefMacro<T> {
 impl<T: Spanned> Spanned for IfDefMacro<T> {
     fn span(&self) -> Span {
         let mut span = self._ifdef_macro.span();
+        span.update_end(self.stmts.try_span().unwrap_or(self._nl.span()));
+        span
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Debug, Clone)]
+pub struct IfUndefMacro<T> {
+    _ifundef_macro: T,
+    pub identifer: Ident,
+    _nl: Token![nl],
+    pub stmts: Vec<Statement>,
+}
+
+impl<TS: TokenStream<Token = Token>, T: Parse<TS>> Parse<TS> for IfUndefMacro<T> {
+    fn parse(tokens: &mut TS) -> laps::span::Result<Self> {
+        Ok(Self {
+            _ifundef_macro: tokens.parse()?,
+            identifer: tokens.parse()?,
+            _nl: tokens.parse()?,
+            stmts: tokens.parse()?,
+        })
+    }
+
+    fn maybe(tokens: &mut TS) -> laps::span::Result<bool> {
+        T::maybe(tokens)
+    }
+}
+
+impl<T: Spanned> Spanned for IfUndefMacro<T> {
+    fn span(&self) -> Span {
+        let mut span = self._ifundef_macro.span();
         span.update_end(self.stmts.try_span().unwrap_or(self._nl.span()));
         span
     }

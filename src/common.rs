@@ -123,7 +123,7 @@ pub fn eval_primary(
                         "Expression that are used to expand code aren't allowed to have labels"
                     )
                 })?
-                .get(name)
+                .get(&name.to_lowercase())
                 .ok_or_else(|| log_error!(primary.span(), "Undefined symbol '{name}'"))?
                 as i64
         }

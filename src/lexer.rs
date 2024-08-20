@@ -109,14 +109,18 @@ pub enum TokenKind {
     EndMacro,
     #[regex(r"%include")]
     IncludeMacro,
-    #[regex(r"%ifdef")]
-    IfDefMacro,
     #[regex(r"%if")]
     IfMacro,
+    #[regex(r"%ifdef")]
+    IfDefMacro,
+    #[regex(r"%ifundef")]
+    IfUndefMacro,
     #[regex(r"%elif")]
     ElifMacro,
     #[regex(r"%elifdef")]
     ElifDefMacro,
+    #[regex(r"%elifundef")]
+    ElifUndefMacro,
     #[regex(r"%else")]
     ElseMacro,
     #[regex(r"%endif")]

@@ -123,7 +123,27 @@ impl Linker {
         }
     }
 
+    fn map_labels(&mut self) {
+        self.instruction_pointer = 0;
+        for stmt in &self.statements {
+            match stmt {
+                Statement::Label(lbl) => {
+                    self.labels_table.insert(
+                        match &lbl.0.kind {
+                            TokenKind::Label(label) => label.name.to_lowercase(),
+                            _ => unreachable!(),
+                        },
+                        self.instruction_pointer,
+                    );
+                }
+                _ => self.instruction_pointer += 1,
+            }
+        }
+    }
+
     pub fn link(&mut self) -> Result<String, Error> {
+        self.map_labels();
+        self.instruction_pointer = 0;
         let mut output = String::new();
         for statement in &self.statements {
             match statement {
@@ -167,15 +187,7 @@ impl Linker {
                         _ => eval_err!(instr.span(), "Invalid instruction"),
                     }
                 }
-                Statement::Label(lbl) => {
-                    self.labels_table.insert(
-                        match &lbl.0.kind {
-                            TokenKind::Label(label) => label.name.clone(),
-                            _ => unreachable!(),
-                        },
-                        self.instruction_pointer,
-                    );
-                }
+                Statement::Label(_) => {} // Labels have been processed
                 _ => eval_err!(statement.span(), "Invalid statement"),
             }
         }
