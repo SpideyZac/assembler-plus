@@ -103,6 +103,7 @@ cargo build --release
 ```
 
 ## Download
-Soon!
+[Go to the most recent release](https://github.com/SpideyZac/assembler-plus/releases/tag/v0.1.0-alpha)
 
 ## Special Thanks to NoName_Official!
+I could not have finished this project, or gotten nearly as many features complete without him!
