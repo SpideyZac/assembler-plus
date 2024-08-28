@@ -105,5 +105,8 @@ cargo build --release
 ## Download
 [Go to the most recent release](https://github.com/SpideyZac/assembler-plus/releases/tag/v0.1.0-alpha)
 
+### WINDOWS DEFENDER WARNINGS!!!
+Windows Defender detects asm+ as a Trojan. I will also inform you that it is the only AV to do so and is most likely do to we are not buying a program license. This program is completely safe.
+
 ## Special Thanks to NoName_Official!
 I could not have finished this project, or gotten nearly as many features complete without him!
