@@ -4,8 +4,8 @@ use std::str::FromStr;
 use crate::common::{eval_expression, expression_map_primary};
 use crate::lexer::{Char, Label, Token, TokenKind};
 use crate::parser::{
-    Comparison, Define, Equality, Expression, Factor, If, Instruction, LogicAnd, Mnemonic, Primary,
-    Statement, Term, Unary, Undefine, __token_ast_Token,
+    Comparison, Define, Equality, ExportMacro, Expression, Factor, If, Instruction, LogicAnd,
+    Mnemonic, Primary, Statement, Symbol, Term, Unary, Undefine, __token_ast_Token,
 };
 
 use laps::log_error;
@@ -42,9 +42,12 @@ impl Macro {
 }
 
 pub struct Assembler {
-    statements: Vec<Statement>,
-    symbol_table: HashMap<String, i64>,
-    macros: HashMap<String, Macro>,
+    files: Vec<Vec<Statement>>,
+    globals: Vec<String>,
+    global_symbols: HashMap<String, i64>,
+    local_symbols: HashMap<String, i64>,
+    global_macros: HashMap<String, Macro>,
+    local_macros: HashMap<String, Macro>,
     current_macro_defs: Vec<(
         HashMap<String, Expression>,
         Option<(String, Vec<Expression>)>,
@@ -54,44 +57,70 @@ pub struct Assembler {
 }
 
 impl Assembler {
-    pub fn new(statements: Vec<Statement>) -> Self {
+    pub fn new(files: Vec<Vec<Statement>>) -> Self {
         Self {
-            statements,
-            symbol_table: HashMap::new(),
-            macros: HashMap::new(),
+            files,
+            globals: vec![],
+            global_symbols: HashMap::new(),
+            local_symbols: HashMap::new(),
+            global_macros: HashMap::new(),
+            local_macros: HashMap::new(),
             current_macro_defs: Vec::new(),
             next_macro_uuid: 0,
             uuid_stack: Vec::new(),
         }
     }
 
-    pub fn generate(mut self) -> Result<Vec<Statement>, Error> {
+    pub fn generate(mut self) -> Result<Vec<Vec<Statement>>, Error> {
         let mut output = Vec::new();
-        for stmt in self.statements.clone() {
-            let out = self.generate_stmt(stmt)?;
-            output.extend(out);
+        for file in self.files.clone() {
+            let mut new_stmts = Vec::new();
+            self.local_symbols = HashMap::new();
+            self.local_macros = HashMap::new();
+            for stmt in file {
+                new_stmts.extend(self.generate_stmt(stmt)?);
+            }
+            output.push(new_stmts);
         }
         Ok(output)
     }
 
     fn generate_define(&mut self, define: &Define) -> Result<Vec<Statement>, Error> {
-        let ident = define.name.get_name();
-        if self.symbol_table.contains_key(&ident.to_lowercase()) {
+        let ident = define.name.get_name().to_lowercase();
+        if self.local_symbols.contains_key(&ident)
+            || (self.globals.contains(&ident.to_string())
+                && self.global_symbols.contains_key(&ident))
+        {
             eval_err!(define.name.span(), "redefinition of '{}'", ident);
         }
-        self.symbol_table.insert(
-            ident.to_lowercase(),
-            eval_expression(&define.value, Some(&self.symbol_table), None, None)?,
-        );
+        let value = eval_expression(
+            &define.value,
+            Some(&self.global_symbols),
+            Some(&self.local_symbols),
+            None,
+            None,
+            None,
+        )?;
+        if self.globals.contains(&ident) {
+            &mut self.global_symbols
+        } else {
+            &mut self.local_symbols
+        }
+        .insert(ident, value);
         Ok(vec![])
     }
 
     fn undefine(&mut self, undefine: &Undefine) -> Result<Vec<Statement>, Error> {
-        let ident = undefine.name.get_name();
-        if !self.symbol_table.contains_key(&ident.to_lowercase()) {
+        let ident = undefine.name.get_name().to_lowercase();
+        let table = if self.globals.contains(&ident) {
+            &mut self.global_symbols
+        } else {
+            &mut self.local_symbols
+        };
+        if !table.contains_key(&ident) {
             eval_err!(undefine.name.span(), "undefined symbol '{ident}'");
         }
-        self.symbol_table.remove(&ident.to_lowercase());
+        table.remove(&ident.to_lowercase());
         Ok(vec![])
     }
 
@@ -120,7 +149,11 @@ impl Assembler {
         name: &str,
         args: &mut [Expression],
     ) -> Result<Vec<Statement>, Error> {
-        let m = self.macros.get(&name.to_lowercase());
+        let name = name.to_lowercase();
+        let m = self
+            .local_macros
+            .get(&name)
+            .or(self.global_macros.get(&name));
         let m = m.ok_or_else(|| log_error!(name_span, "undefined macro or mnemonic '{}'", name))?;
         match m.quantifier {
             Quantifier::Plus => {
@@ -207,14 +240,20 @@ impl Assembler {
         Ok(output)
     }
 
-    fn expand_if<I, D, U>(
+    fn expand_if<I: Spanned, D: Spanned, U: Spanned>(
         &mut self,
         if_block: If<I, D, U>,
     ) -> Result<Option<Vec<Statement>>, Error> {
         match if_block {
             If::If(ifmac) => {
-                let value =
-                    eval_expression(&ifmac.expression, Some(&self.symbol_table), None, None)?;
+                let value = eval_expression(
+                    &ifmac.expression,
+                    Some(&self.global_symbols),
+                    Some(&self.local_symbols),
+                    None,
+                    None,
+                    None,
+                )?;
                 if value != 0 {
                     let mut output = Vec::new();
                     for stmt in ifmac.stmts {
@@ -225,8 +264,11 @@ impl Assembler {
             }
             If::Def(ifdef) => {
                 if self
-                    .symbol_table
+                    .local_symbols
                     .contains_key(&ifdef.identifier.get_name().to_lowercase())
+                    || self
+                        .global_symbols
+                        .contains_key(&ifdef.identifier.get_name().to_lowercase())
                 {
                     let mut output = Vec::new();
                     for stmt in ifdef.stmts {
@@ -237,8 +279,11 @@ impl Assembler {
             }
             If::Undef(undef) => {
                 if !self
-                    .symbol_table
-                    .contains_key(&undef.identifer.get_name().to_lowercase())
+                    .local_symbols
+                    .contains_key(&undef.identifier.get_name().to_lowercase())
+                    && !self
+                        .global_symbols
+                        .contains_key(&undef.identifier.get_name().to_lowercase())
                 {
                     let mut output = Vec::new();
                     for stmt in undef.stmts {
@@ -251,8 +296,28 @@ impl Assembler {
         Ok(None)
     }
 
+    fn generate_export(&mut self, mut export: ExportMacro) -> Result<Vec<Statement>, Error> {
+        if !self.uuid_stack.is_empty() {
+            eval_err!(export.span(), "Can't use exports in macro's");
+        }
+        match export.symbol {
+            Symbol::Ident(ident) => {
+                self.globals.push(ident.get_name().to_lowercase());
+                Ok(vec![])
+            }
+            Symbol::Label(ref mut lbl) => {
+                match &mut lbl.0.kind {
+                    TokenKind::Label(l) => l.name = format!("__{}", l.name),
+                    _ => unreachable!(),
+                }
+                Ok(vec![Statement::ExportMacro(export)])
+            }
+        }
+    }
+
     fn generate_stmt(&mut self, stmt: Statement) -> Result<Vec<Statement>, Error> {
         match stmt {
+            Statement::ExportMacro(export) => self.generate_export(export),
             Statement::Define(define) => self.generate_define(&define),
             Statement::Undefine(undefine) => self.undefine(&undefine),
             Statement::Instruction(ast) => self.generate_instruction(ast),
@@ -372,16 +437,23 @@ impl Assembler {
                         "macro must have at least one argument - the name of the macro"
                     );
                 }
-                let name = def.args[0].get_name();
-                if self.macros.contains_key(&name.to_lowercase()) {
+                let name = def.args[0].get_name().to_lowercase();
+                if self.local_macros.contains_key(&name)
+                    || (self.globals.contains(&name) && self.global_macros.contains_key(&name))
+                {
                     eval_err!(def.mac.0.span, "redefinition of macro '{}'", name);
                 }
                 let args: Vec<String> = def.args[1..]
                     .iter()
                     .map(|arg| arg.get_name().to_owned())
                     .collect();
-                self.macros.insert(
-                    name.to_lowercase(),
+                if self.globals.contains(&name) {
+                    &mut self.global_macros
+                } else {
+                    &mut self.local_macros
+                }
+                .insert(
+                    name,
                     Macro::new(
                         args,
                         def.body.clone(),
@@ -407,8 +479,9 @@ impl Assembler {
                 *primary = Primary::Int(__token_ast_Token::Token4(Token::new(
                     TokenKind::Int(
                         *self
-                            .symbol_table
+                            .local_symbols
                             .get(&ident.get_name().to_lowercase())
+                            .or(self.global_symbols.get(&ident.get_name().to_lowercase()))
                             .ok_or_else(|| {
                                 log_error!(
                                     primary.span(),
@@ -429,7 +502,14 @@ impl Assembler {
                 let value = macro_def.0.get(name).ok_or_else(|| {
                     log_error!(expr.span(), "Undefined macro expression '{name}'")
                 })?;
-                let value = eval_expression(value, Some(&self.symbol_table), None, None)?;
+                let value = eval_expression(
+                    value,
+                    Some(&self.global_symbols),
+                    Some(&self.local_symbols),
+                    None,
+                    None,
+                    None,
+                )?;
                 *primary = Primary::Int(__token_ast_Token::Token4(Token::new(
                     TokenKind::Int(value as i16),
                     primary.span(),

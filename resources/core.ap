@@ -1,3 +1,44 @@
+%export pixel_x
+%export pixel_y
+%export draw_pixel
+%export clear_pixel
+%export load_pixel
+%export buffer_screen
+%export clear_screen_buffer
+%export write_char
+%export buffer_chars
+%export clear_chars_buffer
+%export show_number
+%export clear_number
+%export signed_mode
+%export unsigned_mode
+%export rng
+%export controller_input
+%export EQ
+%export =
+%export Z
+%export ZERO
+%export NE
+%export !=
+%export NZ
+%export NOTZERO
+%export GE
+%export >=
+%export C
+%export CARRY
+%export LT
+%export <
+%export NC
+%export NOTCARRY
+%export CMP
+%export MOV
+%export LSH
+%export INC
+%export DEC
+%export NOT
+%export NEG
+%export TEST
+
 // Ports
 DEFINE pixel_x 240
 DEFINE pixel_y 241

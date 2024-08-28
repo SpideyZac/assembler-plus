@@ -18,14 +18,22 @@ macro_rules! eval_binop {
         $(
             pub fn $fn_name(
                 node: &$Ty,
-                symbols: Option<&HashMap<String, i64>>,
-                labels: Option<&HashMap<String, u64>>,
+                global_symbols: Option<&HashMap<String, i64>>,
+                local_symbols: Option<&HashMap<String, i64>>,
+                global_labels: Option<&HashMap<String, u64>>,
+                local_labels: Option<&HashMap<String, u64>>,
             ) -> Result<i64, Error> {
                 node.rest.iter().try_fold(
-                    $child_fn(&node.first, symbols, labels)?,
+                    $child_fn(&node.first, global_symbols, local_symbols, global_labels, local_labels)?,
                     |acc, (op, operand)|  Ok(match op.0.kind {
                         $(
-                            TokenKind::$token_kind => acc.$op(&$child_fn(operand, symbols, labels)?).into(),
+                            TokenKind::$token_kind => acc.$op(&$child_fn(
+                                operand,
+                                global_symbols,
+                                local_symbols,
+                                global_labels,
+                                local_labels
+                            )?).into(),
                         )*
                         _ => unreachable!(),
                     })
@@ -51,15 +59,29 @@ macro_rules! binop_map_primary {
 
 pub fn eval_expression(
     expression: &Expression,
-    symbols: Option<&HashMap<String, i64>>,
-    labels: Option<&HashMap<String, u64>>,
+    global_symbols: Option<&HashMap<String, i64>>,
+    local_symbols: Option<&HashMap<String, i64>>,
+    global_labels: Option<&HashMap<String, u64>>,
+    local_labels: Option<&HashMap<String, u64>>,
     bits: Option<u32>,
 ) -> Result<i64, Error> {
     let value = expression.rest.iter().try_fold(
-        eval_logic_and(&expression.first, symbols, labels)?,
+        eval_logic_and(
+            &expression.first,
+            global_symbols,
+            local_symbols,
+            global_labels,
+            local_labels,
+        )?,
         |acc, (op, operand)| {
             Ok(match op.0.kind {
-                TokenKind::Or => acc.bitor(&eval_logic_and(operand, symbols, labels)?),
+                TokenKind::Or => acc.bitor(&eval_logic_and(
+                    operand,
+                    global_symbols,
+                    local_symbols,
+                    global_labels,
+                    local_labels,
+                )?),
                 _ => unreachable!(),
             })
         },
@@ -87,36 +109,52 @@ eval_binop!(
 
 pub fn eval_unary(
     unary: &Unary,
-    symbols: Option<&HashMap<String, i64>>,
-    labels: Option<&HashMap<String, u64>>,
+    global_symbols: Option<&HashMap<String, i64>>,
+    local_symbols: Option<&HashMap<String, i64>>,
+    global_labels: Option<&HashMap<String, u64>>,
+    local_labels: Option<&HashMap<String, u64>>,
 ) -> Result<i64, Error> {
-    unary
-        .ops
-        .iter()
-        .rev()
-        .try_fold(eval_primary(&unary.primary, symbols, labels)?, |acc, op| {
+    unary.ops.iter().rev().try_fold(
+        eval_primary(
+            &unary.primary,
+            global_symbols,
+            local_symbols,
+            global_labels,
+            local_labels,
+        )?,
+        |acc, op| {
             Ok(match op.0.kind {
                 TokenKind::Not => !acc,
                 TokenKind::Plus => acc,
                 TokenKind::Minus => -acc,
                 _ => unreachable!(),
             })
-        })
+        },
+    )
 }
 
 pub fn eval_primary(
     primary: &Primary,
-    symbols: Option<&HashMap<String, i64>>,
-    labels: Option<&HashMap<String, u64>>,
+    global_symbols: Option<&HashMap<String, i64>>,
+    local_symbols: Option<&HashMap<String, i64>>,
+    global_labels: Option<&HashMap<String, u64>>,
+    local_labels: Option<&HashMap<String, u64>>,
 ) -> Result<i64, Error> {
     Ok(match primary {
-        Primary::Parenthesized(_, expr, _) => eval_expression(expr, symbols, labels, None)?,
+        Primary::Parenthesized(_, expr, _) => eval_expression(
+            expr,
+            global_symbols,
+            local_symbols,
+            global_labels,
+            local_labels,
+            None,
+        )?,
         Primary::Label(l) => {
             let name = match &l.0.kind {
                 TokenKind::Label(lbl) => &lbl.name,
                 _ => unreachable!(),
             };
-            *labels
+            *local_labels
                 .ok_or_else(|| {
                     log_error!(
                         primary.span(),
@@ -124,6 +162,7 @@ pub fn eval_primary(
                     )
                 })?
                 .get(&name.to_lowercase())
+                .or_else(|| global_labels.unwrap().get(&name.to_lowercase()))
                 .ok_or_else(|| log_error!(primary.span(), "Undefined symbol '{name}'"))?
                 as i64
         }
@@ -135,7 +174,7 @@ pub fn eval_primary(
             TokenKind::Register(reg) => reg.number as i64,
             _ => unreachable!(),
         },
-        Primary::Identifier(ident) => *symbols
+        Primary::Identifier(ident) => *local_symbols
             .ok_or_else(|| {
                 log_error!(
                     primary.span(),
@@ -143,6 +182,9 @@ pub fn eval_primary(
                 )
             })?
             .get(&ident.get_name().to_lowercase())
+            .or(global_symbols
+                .unwrap()
+                .get(&ident.get_name().to_lowercase()))
             .ok_or_else(|| log_error!(primary.span(), "Undefined symbol '{}'", ident.get_name()))?,
         Primary::Char(char) => match char.0.kind {
             TokenKind::Char(char) => char.value as i64,

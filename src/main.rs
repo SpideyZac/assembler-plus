@@ -16,9 +16,11 @@ use laps::lexer::Tokenize;
 use laps::reader::Reader;
 use laps::span::{Result, Span};
 use laps::token::{TokenBuffer, TokenStream};
-use link::Linker;
+use link::link;
 
-fn generate_file(fp: &str) -> (Vec<Statement>, Span) {
+fn generate_file(fp: &str, imported_files: &mut Vec<String>) -> (Vec<Vec<Statement>>, Span) {
+    imported_files.push(fp.to_owned());
+
     let reader = Reader::from_path(fp).expect("failed to open file");
 
     let span = reader.span().clone();
@@ -26,19 +28,21 @@ fn generate_file(fp: &str) -> (Vec<Statement>, Span) {
 
     let mut tokens = TokenBuffer::new(lexer);
 
+    let mut files = Vec::new();
     let mut statements = Vec::new();
 
-    if !fp.ends_with("core.ap") {
-        let (stmts, _) = generate_file(
-            env::current_exe()
-                .expect("Failed to get exe path")
-                .parent()
-                .expect("Failed to get exe dir")
-                .join("resources/core.ap")
-                .to_str()
-                .expect("Failed to get core file"),
-        );
-        statements.extend(stmts);
+    let core_path = env::current_exe()
+        .expect("Failed to get exe path")
+        .parent()
+        .expect("Failed to get exe dir")
+        .join("resources/core.ap")
+        .to_str()
+        .expect("Failed to get core file")
+        .to_owned();
+
+    if !imported_files.contains(&core_path) {
+        let (stmts, _) = generate_file(&core_path, imported_files);
+        files.extend(stmts);
     }
 
     loop {
@@ -49,8 +53,10 @@ fn generate_file(fp: &str) -> (Vec<Statement>, Span) {
             match stmt {
                 Statement::IncludeMacro(incl) => match incl.path.0.kind {
                     TokenKind::RawString(path) => {
-                        let (stmts, _) = generate_file(&path.value);
-                        statements.extend(stmts);
+                        if !imported_files.contains(&path.value) {
+                            let (stmts, _) = generate_file(&path.value, imported_files);
+                            files.extend(stmts);
+                        }
                     }
                     _ => unreachable!(),
                 },
@@ -62,7 +68,9 @@ fn generate_file(fp: &str) -> (Vec<Statement>, Span) {
         }
     }
 
-    (statements, span)
+    files.push(statements);
+
+    (files, span)
 }
 
 fn main() -> Result<()> {
@@ -70,18 +78,16 @@ fn main() -> Result<()> {
     args.next(); // Skip the program name
     let fp = args.next().expect("expected file path");
     let op = args.next().expect("expected output path");
-    let (statements, span) = generate_file(&fp);
+    let (files, span) = generate_file(&fp, &mut vec![]);
 
-    let assembler = Assembler::new(statements);
-    let output = match assembler.generate() {
+    let output = match Assembler::new(files).generate() {
         Ok(output) => output,
         Err(_) => {
             span.log_summary();
             exit(span.error_num() as i32);
         }
     };
-    let mut linker = Linker::new(output);
-    match linker.link() {
+    match link(&output.iter().map(|file| &file[..]).collect::<Vec<_>>()) {
         Ok(output) => {
             std::fs::write(op, output).expect("failed to write output");
         }

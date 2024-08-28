@@ -1,10 +1,15 @@
 import subprocess
 import os
 import importlib.util
+import glob
 
 spec = importlib.util.spec_from_file_location("assembler", "BatPU-2/assembler.py")
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
+
+files = glob.glob("./test/**/*.mc")
+for file in files:
+    os.remove(file)
 
 cases = os.listdir("./test/base")
 cases = [case for case in cases if case.endswith(".as")]

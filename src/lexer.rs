@@ -105,6 +105,8 @@ pub enum TokenKind {
     #[regex(r#""([^\x00-\x1f"\\]|\\(["\\/bfnrt]|u[0-9a-fA-F]{4}))*""#, str_lit)]
     RawString(RawString),
 
+    #[regex(r"%export")]
+    ExportMacro,
     #[regex(r"%macro")]
     Macro,
     #[regex(r"%endmacro")]
