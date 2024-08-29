@@ -65,6 +65,14 @@ ldi r1 buffer_chars
 str r1 r0
 ```
 
+You can also use multiple values in a for loop
+
+```asm
+%for val in 1 2 3 0xff
+    ldi r1 $val
+%endfor
+```
+
 ### Include Files 🟢
 The include files feature allows you to import another file into your code.
 
@@ -103,7 +111,7 @@ cargo build --release
 ```
 
 ## Download
-[Go to the most recent release](https://github.com/SpideyZac/assembler-plus/releases/tag/v0.1.0-alpha)
+[Go to the most recent release](https://github.com/SpideyZac/assembler-plus/releases/latest)
 
 ### WINDOWS DEFENDER WARNINGS!!!
 Windows Defender detects asm+ as a Trojan. I will also inform you that it is the only AV to do so and is most likely do to we are not buying a program license. This program is completely safe.

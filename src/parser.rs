@@ -36,7 +36,6 @@ token_ast! {
         [undefine] => { kind: TokenKind::Undefine, prompt: "undefine" },
 
         [+*] => { kind: TokenKind::Plus | TokenKind::Mult, prompt: "plus or star" },
-        [sequence] => { kind: TokenKind::RawString(_) | TokenKind::MacroExpression(_), prompt: "sequence" },
 
         [+-] => { kind: TokenKind::Plus | TokenKind::Minus, prompt: "plus or minus" },
         [*/] => { kind: TokenKind::Mult | TokenKind::Div, prompt: "multiply or divide" },
@@ -280,13 +279,52 @@ impl<TS: TokenStream<Token = Token>, T: Parse<TS> + Spanned> Parse<TS> for IfUnd
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum Sequence {
+    Str(Token![rawstr]),
+    MacroExpr(Token![macexpr]),
+    Multiple(Vec<Expression>),
+}
+
+impl<TS: TokenStream<Token = Token>> Parse<TS> for Sequence {
+    fn parse(tokens: &mut TS) -> laps::span::Result<Self> {
+        if <Token![rawstr]>::maybe(tokens)? {
+            Ok(Self::Str(tokens.parse()?))
+        } else if <Token![macexpr]>::maybe(tokens)? {
+            Ok(Self::MacroExpr(tokens.parse()?))
+        } else {
+            let first = tokens.parse()?;
+            let rest: Vec<_> = tokens.parse()?;
+            let mut all = vec![first];
+            all.extend(rest);
+            Ok(Self::Multiple(all))
+        }
+    }
+
+    fn maybe(tokens: &mut TS) -> laps::span::Result<bool> {
+        Ok(<Token![rawstr]>::maybe(tokens)?
+            || <Token![macexpr]>::maybe(tokens)?
+            || Expression::maybe(tokens)?)
+    }
+}
+
+impl Spanned for Sequence {
+    fn span(&self) -> laps::span::Span {
+        match self {
+            Sequence::Str(str) => str.span(),
+            Sequence::MacroExpr(mac_expr) => mac_expr.span(),
+            Sequence::Multiple(multiple) => multiple.try_span().unwrap(), // There will always be at least one element
+        }
+    }
+}
+
 #[derive(Parse, Spanned, Debug, Clone)]
 #[token(Token)]
 pub struct ForMacro {
     _for_macro: Token![formacro],
     pub ident: Ident,
     _in: Token![in],
-    pub expr: Token![sequence],
+    pub expr: Sequence,
     _nl: Token![nl],
     pub stmts: Vec<Statement>,
     _end_for: Token![endfor],

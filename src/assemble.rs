@@ -5,7 +5,7 @@ use crate::common::{eval_expression, expression_map_primary};
 use crate::lexer::{Char, Label, Token, TokenKind};
 use crate::parser::{
     Comparison, Define, Equality, ExportMacro, Expression, Factor, If, Instruction, LogicAnd,
-    Mnemonic, Primary, Statement, Symbol, Term, Unary, Undefine, __token_ast_Token,
+    Mnemonic, Primary, Sequence, Statement, Symbol, Term, Unary, Undefine, __token_ast_Token,
 };
 
 use laps::log_error;
@@ -351,8 +351,11 @@ impl Assembler {
                 }
             }
             Statement::ForMacro(for_macro) => {
-                let value = match &for_macro.expr.0.kind {
-                    TokenKind::RawString(string) => string
+                let value = match &for_macro.expr {
+                    Sequence::Str(string) => match &string.0.kind {
+                        TokenKind::RawString(string) => string,
+                        _ => unreachable!(),
+                    }
                         .value
                         .chars()
                         .map(|char| {
@@ -395,7 +398,11 @@ impl Assembler {
                             })
                         })
                         .collect::<Result<Vec<_>, _>>(),
-                    TokenKind::MacroExpression(expr) => {
+                    Sequence::MacroExpr(expr) => {
+                        let expr = match &expr.0.kind {
+                            TokenKind::MacroExpression(expr) => expr,
+                            _ => unreachable!(),
+                        };
                         let (name, values) = self.current_macro_defs
                             [self.current_macro_defs.len() - 1].clone()
                             .1
@@ -414,7 +421,7 @@ impl Assembler {
                         }
                         Ok(values)
                     }
-                    _ => unreachable!(),
+                    Sequence::Multiple(values) => Ok(values.clone()),
                 }?;
                 self.current_macro_defs.push((HashMap::new(), None));
                 let mut output = Vec::new();
