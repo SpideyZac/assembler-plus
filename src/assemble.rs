@@ -71,18 +71,20 @@ impl Assembler {
         }
     }
 
-    pub fn generate(mut self) -> Result<Vec<Vec<Statement>>, Error> {
+    pub fn generate(mut self) -> Vec<Vec<Statement>> {
         let mut output = Vec::new();
         for file in self.files.clone() {
             let mut new_stmts = Vec::new();
             self.local_symbols = HashMap::new();
             self.local_macros = HashMap::new();
             for stmt in file {
-                new_stmts.extend(self.generate_stmt(stmt)?);
+                if let Ok(out) = self.generate_stmt(stmt) {
+                    new_stmts.extend(out);
+                }
             }
             output.push(new_stmts);
         }
-        Ok(output)
+        output
     }
 
     fn generate_define(&mut self, define: &Define) -> Result<Vec<Statement>, Error> {
@@ -91,7 +93,7 @@ impl Assembler {
             || (self.globals.contains(&ident.to_string())
                 && self.global_symbols.contains_key(&ident))
         {
-            eval_err!(define.name.span(), "redefinition of '{}'", ident);
+            log_error!(define.name.span(), "redefinition of '{}'", ident);
         }
         let value = eval_expression(
             &define.value,
@@ -124,10 +126,7 @@ impl Assembler {
         Ok(vec![])
     }
 
-    fn generate_label(
-        &mut self,
-        label: &__token_ast_Token::Token3,
-    ) -> Result<Vec<Statement>, Error> {
+    fn generate_label(&mut self, label: &__token_ast_Token::Token3) -> Vec<Statement> {
         let mut name = match &label.0.kind {
             TokenKind::Label(l) => l.name.clone(),
             _ => unreachable!(),
@@ -137,9 +136,10 @@ impl Assembler {
         } else {
             name.insert_str(0, "__");
         }
-        Ok(vec![Statement::Label(__token_ast_Token::Token3(
-            Token::new(TokenKind::Label(Label { name }), label.span()),
-        ))])
+        vec![Statement::Label(__token_ast_Token::Token3(Token::new(
+            TokenKind::Label(Label { name }),
+            label.span(),
+        )))]
     }
 
     fn generate_macro_call(
@@ -202,7 +202,7 @@ impl Assembler {
             .zip(args.iter_mut())
         {
             if macro_def.contains_key(arg_name) {
-                eval_err!(name_span, "redefinition of argument '{}'", arg_name);
+                log_error!(name_span, "redefinition of argument '{}'", arg_name);
             }
             expression_map_primary(arg, &mut |primary| self.map_primary(primary))?;
             macro_def.insert(arg_name.clone(), arg.clone());
@@ -212,7 +212,7 @@ impl Assembler {
                 let values = args[m.args.len() - 1..].to_vec();
                 let arg_name = m.args[m.args.len() - 1].clone();
                 if macro_def.contains_key(&arg_name) {
-                    eval_err!(name_span, "redefinition of argument '{}'", arg_name);
+                    log_error!(name_span, "redefinition of argument '{}'", arg_name);
                 }
                 Some((m.args[m.args.len() - 1].clone(), values))
             }
@@ -221,7 +221,7 @@ impl Assembler {
                     let value = args[args.len() - 1].clone();
                     let arg_name = m.args[m.args.len() - 1].clone();
                     if macro_def.contains_key(&arg_name) {
-                        eval_err!(name_span, "redefinition of argument '{}'", arg_name);
+                        log_error!(name_span, "redefinition of argument '{}'", arg_name);
                     }
                     macro_def.insert(arg_name, value);
                 }
@@ -257,7 +257,9 @@ impl Assembler {
                 if value != 0 {
                     let mut output = Vec::new();
                     for stmt in ifmac.stmts {
-                        output.extend(self.generate_stmt(stmt)?);
+                        if let Ok(out) = self.generate_stmt(stmt) {
+                            output.extend(out);
+                        }
                     }
                     return Ok(Some(output));
                 }
@@ -272,7 +274,9 @@ impl Assembler {
                 {
                     let mut output = Vec::new();
                     for stmt in ifdef.stmts {
-                        output.extend(self.generate_stmt(stmt)?);
+                        if let Ok(out) = self.generate_stmt(stmt) {
+                            output.extend(out);
+                        }
                     }
                     return Ok(Some(output));
                 }
@@ -287,7 +291,9 @@ impl Assembler {
                 {
                     let mut output = Vec::new();
                     for stmt in undef.stmts {
-                        output.extend(self.generate_stmt(stmt)?);
+                        if let Ok(out) = self.generate_stmt(stmt) {
+                            output.extend(out);
+                        }
                     }
                     return Ok(Some(output));
                 }
@@ -321,7 +327,7 @@ impl Assembler {
             Statement::Define(define) => self.generate_define(&define),
             Statement::Undefine(undefine) => self.undefine(&undefine),
             Statement::Instruction(ast) => self.generate_instruction(ast),
-            Statement::Label(lbl) => self.generate_label(&lbl),
+            Statement::Label(lbl) => Ok(self.generate_label(&lbl)),
             Statement::If(if_chain) => {
                 if let Some(output) = self.expand_if(if_chain.init_if)? {
                     return Ok(output);
@@ -335,7 +341,9 @@ impl Assembler {
                     Some(else_block) => {
                         let mut output = Vec::new();
                         for stmt in else_block.stmts {
-                            output.extend(self.generate_stmt(stmt)?);
+                            if let Ok(out) = self.generate_stmt(stmt) {
+                                output.extend(out);
+                            }
                         }
                         Ok(output)
                     }
@@ -398,7 +406,7 @@ impl Assembler {
                                 )
                             })?;
                         if name != expr.name {
-                            eval_err!(
+                            log_error!(
                                 for_macro.expr.span(),
                                 "Could not find sequence macro '{}', this macro's sequence macro is called '{}'",
                                 expr.name, name
@@ -441,7 +449,7 @@ impl Assembler {
                 if self.local_macros.contains_key(&name)
                     || (self.globals.contains(&name) && self.global_macros.contains_key(&name))
                 {
-                    eval_err!(def.mac.0.span, "redefinition of macro '{}'", name);
+                    log_error!(def.mac.0.span, "redefinition of macro '{}'", name);
                 }
                 let args: Vec<String> = def.args[1..]
                     .iter()

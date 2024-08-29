@@ -6,17 +6,7 @@ use crate::{
     parser::{self, ExportMacro, Instruction, Statement, Symbol, __token_ast_Token},
 };
 
-use laps::{
-    log_error,
-    span::{Error, Spanned},
-    token::Token,
-};
-
-macro_rules! eval_err {
-    ($span:expr, $($arg:tt)+) => {
-        return Err(log_error!($span, $($arg)+))
-    };
-}
+use laps::{log_error, span::Spanned, token::Token};
 
 macro_rules! instructions {
     (
@@ -30,14 +20,16 @@ macro_rules! instructions {
                     let args_max = instructions!(@args_max $(: $($bits $(=>$padding)? $(=>$default)?),*)?);
                     if !(args_min..=args_max).contains(&$operands.len()) {
                         if args_min == args_max {
-                            eval_err!($span, "expected {args_min} operands, got {}", $operands.len());
+                            log_error!($span, "expected {args_min} operands, got {}", $operands.len());
                         } else {
-                            eval_err!($span, "expected between {args_min} and {args_max} operands, got {}", $operands.len());
+                            log_error!($span, "expected between {args_min} and {args_max} operands, got {}", $operands.len());
                         }
+                        0
+                    } else {
+                        $(instructions!(
+                            @eval_expression $globals, $locals, $span, $operands, 0, 0 $(, $bits $(=>$padding)? $(=>$default)?)*) |
+                        )? ($op << 12)
                     }
-                    $(instructions!(
-                        @eval_expression $globals, $locals, $span, $operands, 0, 0 $(, $bits $(=>$padding)? $(=>$default)?)*) |
-                    )? ($op << 12)
                 }
             )*
         }
@@ -75,7 +67,8 @@ macro_rules! instructions {
         $bits: expr
         $(, $rest: expr $(=>$padding: ident)? $(=>$default: literal)?)*
     ) => {
-        (eval_expression(&$operands[$acc], None, None, Some(&$globals), Some(&$locals), Some($bits))? << (12 - $shift - $bits)) |
+        (eval_expression(&$operands[$acc], None, None, Some(&$globals), Some(&$locals), Some($bits)).unwrap_or(0)
+        << (12 - $shift - $bits)) |
         instructions!(@eval_expression $globals, $locals, $span, $operands, $acc + 1, $shift + $bits $(, $rest $(=>$padding)? $(=>$default)?)*)
     };
     (
@@ -90,7 +83,8 @@ macro_rules! instructions {
     ) => {
         ($operands
             .get($acc)
-            .map_or(Ok($default), |operand| eval_expression(&operand, None, None, Some(&$globals), Some(&$locals), Some($bits)))?
+            .map_or(Ok($default), |operand| eval_expression(&operand, None, None, Some(&$globals), Some(&$locals), Some($bits)))
+            .unwrap_or(0)
         << (12 - $shift - $bits)) |
         instructions!(@eval_expression $globals, $locals, $span, $operands, $acc + 1, $shift + $bits $(, $rest $(=>$padding)? $(=>$def)?)*)
     };
@@ -109,7 +103,7 @@ macro_rules! instructions {
     (@eval_expression $globals: ident, $locals: ident, $span: expr, $operands: expr, $acc: expr, $shift: expr) => {0}
 }
 
-fn map_global_labels(files: &[&[Statement]]) -> Result<HashMap<String, u64>, Error> {
+fn map_global_labels(files: &[&[Statement]]) -> HashMap<String, u64> {
     let mut globals = vec![];
     for file in files {
         for stmt in file.iter() {
@@ -145,7 +139,7 @@ fn map_global_labels(files: &[&[Statement]]) -> Result<HashMap<String, u64>, Err
                         continue;
                     }
                     if globals_map.contains_key(&name.to_lowercase()) {
-                        eval_err!(lbl.span(), "Dubplicate global label '{}'", name);
+                        log_error!(lbl.span(), "Dubplicate global label '{}'", name);
                     }
                     globals_map.insert(name.to_lowercase(), instruction_pointer);
                 }
@@ -154,13 +148,10 @@ fn map_global_labels(files: &[&[Statement]]) -> Result<HashMap<String, u64>, Err
             }
         }
     }
-    Ok(globals_map)
+    globals_map
 }
 
-fn map_local_labels(
-    stmts: &[Statement],
-    mut instruction_pointer: u64,
-) -> Result<HashMap<String, u64>, Error> {
+fn map_local_labels(stmts: &[Statement], mut instruction_pointer: u64) -> HashMap<String, u64> {
     let mut locals_map = HashMap::new();
     for stmt in stmts {
         match stmt {
@@ -170,7 +161,7 @@ fn map_local_labels(
                     _ => unreachable!(),
                 };
                 if locals_map.contains_key(name) {
-                    eval_err!(lbl.span(), "Duplicate label '{}'", name);
+                    log_error!(lbl.span(), "Duplicate label '{}'", name);
                 }
                 locals_map.insert(name.to_lowercase(), instruction_pointer);
             }
@@ -178,15 +169,15 @@ fn map_local_labels(
             _ => {}
         }
     }
-    Ok(locals_map)
+    locals_map
 }
 
-pub fn link(files: &[&[Statement]]) -> Result<String, Error> {
-    let globals = map_global_labels(files)?;
+pub fn link(files: &[&[Statement]]) -> String {
+    let globals = map_global_labels(files);
     let mut output = String::new();
     let mut instruction_pointer = 0;
     for file in files {
-        let locals = map_local_labels(file, instruction_pointer)?;
+        let locals = map_local_labels(file, instruction_pointer);
         for stmt in file.iter() {
             if let Statement::Instruction(instr) = stmt {
                 let operands = &instr.operands;
@@ -226,5 +217,5 @@ pub fn link(files: &[&[Statement]]) -> Result<String, Error> {
             }
         }
     }
-    Ok(output)
+    output
 }

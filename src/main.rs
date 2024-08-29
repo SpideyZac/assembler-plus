@@ -80,22 +80,16 @@ fn main() -> Result<()> {
     let op = args.next().expect("expected output path");
     let (files, span) = generate_file(&fp, &mut vec![]);
 
-    let output = match Assembler::new(files).generate() {
-        Ok(output) => output,
-        Err(_) => {
-            span.log_summary();
-            exit(span.error_num() as i32);
-        }
-    };
-    match link(&output.iter().map(|file| &file[..]).collect::<Vec<_>>()) {
-        Ok(output) => {
-            std::fs::write(op, output).expect("failed to write output");
-        }
-        Err(_) => {
-            span.log_summary();
-            exit(span.error_num() as i32);
-        }
+    let output = Assembler::new(files).generate();
+    if span.error_num() > 0 {
+        span.log_summary();
+        exit(span.error_num() as i32);
     }
-
+    let output = link(&output.iter().map(|file| &file[..]).collect::<Vec<_>>());
+    if span.error_num() > 0 {
+        span.log_summary();
+        exit(span.error_num() as i32);
+    }
+    std::fs::write(op, output).expect("failed to write output");
     Ok(())
 }

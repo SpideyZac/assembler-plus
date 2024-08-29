@@ -1,11 +1,7 @@
 use crate::lexer::{Token, TokenKind};
 
 use derivative::Derivative;
-use laps::{
-    log_warning,
-    prelude::*,
-    span::{FileType, Span},
-};
+use laps::{log_warning, prelude::*, span::TrySpan};
 
 token_ast! {
     #[derive(Debug, PartialEq, Clone)]
@@ -323,13 +319,11 @@ pub struct Instruction {
 
 impl Instruction {
     pub fn new(mnemonic: Mnemonic, operands: Vec<Expression>) -> Self {
+        let span = operands.try_span().unwrap_or(mnemonic.span());
         Self {
             mnemonic,
             operands,
-            _nl: __token_ast_Token::Token0(Token::new(
-                TokenKind::Newline,
-                Span::new(FileType::Buffer),
-            )),
+            _nl: __token_ast_Token::Token0(Token::new(TokenKind::Newline, span)),
         }
     }
 }
