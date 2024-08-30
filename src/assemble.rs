@@ -87,7 +87,7 @@ impl Assembler {
         output
     }
 
-    fn generate_define(&mut self, define: &Define) -> Result<Vec<Statement>, Error> {
+    fn generate_define(&mut self, define: &mut Define) -> Result<Vec<Statement>, Error> {
         let ident = define.name.get_name().to_lowercase();
         if self.local_symbols.contains_key(&ident)
             || (self.globals.contains(&ident.to_string())
@@ -95,6 +95,7 @@ impl Assembler {
         {
             log_error!(define.name.span(), "redefinition of '{}'", ident);
         }
+        expression_map_primary(&mut define.value, &mut |node| self.map_primary(node))?;
         let value = eval_expression(
             &define.value,
             Some(&self.global_symbols),
@@ -147,7 +148,7 @@ impl Assembler {
         name_span: Span,
         instruction_span: Span,
         name: &str,
-        args: &mut [Expression],
+        mut args: Vec<Expression>,
     ) -> Result<Vec<Statement>, Error> {
         let name = name.to_lowercase();
         let m = self
@@ -194,31 +195,35 @@ impl Assembler {
         let macro_body = m.body.clone();
 
         let mut macro_def = HashMap::new();
-        for (arg_name, arg) in m
+        let mut rest = args.split_off(m.args.len().saturating_sub(1));
+        for (arg_name, mut arg) in m
             .args
             .clone()
             .iter()
             .take(m.args.len().saturating_sub(1))
-            .zip(args.iter_mut())
+            .zip(args.into_iter())
         {
             if macro_def.contains_key(arg_name) {
                 log_error!(name_span, "redefinition of argument '{}'", arg_name);
             }
-            expression_map_primary(arg, &mut |primary| self.map_primary(primary))?;
-            macro_def.insert(arg_name.clone(), arg.clone());
+            expression_map_primary(&mut arg, &mut |primary| self.map_primary(primary))?;
+            macro_def.insert(arg_name.clone(), arg);
         }
         let rest = match m.quantifier {
             Quantifier::Plus | Quantifier::Star => {
-                let values = args[m.args.len() - 1..].to_vec();
+                for val in &mut rest {
+                    expression_map_primary(val, &mut |primary| self.map_primary(primary))?;
+                }
                 let arg_name = m.args[m.args.len() - 1].clone();
                 if macro_def.contains_key(&arg_name) {
                     log_error!(name_span, "redefinition of argument '{}'", arg_name);
                 }
-                Some((m.args[m.args.len() - 1].clone(), values))
+                Some((m.args[m.args.len() - 1].clone(), rest))
             }
             Quantifier::None => {
                 if !m.args.is_empty() {
-                    let value = args[args.len() - 1].clone();
+                    let mut value = rest.into_iter().next_back().unwrap();
+                    expression_map_primary(&mut value, &mut |node| self.map_primary(node))?;
                     let arg_name = m.args[m.args.len() - 1].clone();
                     if macro_def.contains_key(&arg_name) {
                         log_error!(name_span, "redefinition of argument '{}'", arg_name);
@@ -245,7 +250,8 @@ impl Assembler {
         if_block: If<I, D, U>,
     ) -> Result<Option<Vec<Statement>>, Error> {
         match if_block {
-            If::If(ifmac) => {
+            If::If(mut ifmac) => {
+                expression_map_primary(&mut ifmac.expression, &mut |node| self.map_primary(node))?;
                 let value = eval_expression(
                     &ifmac.expression,
                     Some(&self.global_symbols),
@@ -324,7 +330,7 @@ impl Assembler {
     fn generate_stmt(&mut self, stmt: Statement) -> Result<Vec<Statement>, Error> {
         match stmt {
             Statement::ExportMacro(export) => self.generate_export(export),
-            Statement::Define(define) => self.generate_define(&define),
+            Statement::Define(mut define) => self.generate_define(&mut define),
             Statement::Undefine(undefine) => self.undefine(&undefine),
             Statement::Instruction(ast) => self.generate_instruction(ast),
             Statement::Label(lbl) => Ok(self.generate_label(&lbl)),
@@ -423,15 +429,27 @@ impl Assembler {
                     }
                     Sequence::Multiple(values) => Ok(values.clone()),
                 }?;
-                self.current_macro_defs.push((HashMap::new(), None));
                 let mut output = Vec::new();
-                for val in value {
+                let mut new_macro_def = false;
+                if self.current_macro_defs.is_empty() {
+                    self.current_macro_defs.push((HashMap::new(), None));
+                    new_macro_def = true;
+                }
+                let name = for_macro.ident.get_name();
+                if self.current_macro_defs[self.current_macro_defs.len() - 1]
+                    .0
+                    .contains_key(name)
+                {
+                    log_error!(for_macro.ident.span(), "redefinition of argument '{name}'");
+                }
+                for mut val in value {
                     self.uuid_stack.push(self.next_macro_uuid);
                     self.next_macro_uuid += 1;
-                    let len = self.current_macro_defs.len() - 1;
-                    self.current_macro_defs[len]
-                        .0
-                        .insert(for_macro.ident.get_name().to_owned(), val);
+                    if expression_map_primary(&mut val, &mut |node| self.map_primary(node)).is_ok()
+                    {
+                        let len = self.current_macro_defs.len() - 1;
+                        self.current_macro_defs[len].0.insert(name.to_owned(), val);
+                    }
                     for stmt in for_macro.stmts.clone().into_iter() {
                         output.extend(self.generate_stmt(stmt)?);
                     }
@@ -441,7 +459,9 @@ impl Assembler {
                 self.current_macro_defs[len]
                     .0
                     .remove(for_macro.ident.get_name());
-                self.current_macro_defs.pop();
+                if new_macro_def {
+                    self.current_macro_defs.pop();
+                }
                 Ok(output)
             }
             Statement::IncludeMacro(_) => Ok(Vec::new()), // handle include macros before generating code
@@ -565,12 +585,9 @@ impl Assembler {
                     instruction.operands,
                 ))])
             }
-            Mnemonic::MacroCall(name) => self.generate_macro_call(
-                name.span(),
-                span,
-                name.get_name(),
-                &mut instruction.operands,
-            ),
+            Mnemonic::MacroCall(name) => {
+                self.generate_macro_call(name.span(), span, name.get_name(), instruction.operands)
+            }
         }
     }
 }
