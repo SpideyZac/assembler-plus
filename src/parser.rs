@@ -15,6 +15,7 @@ token_ast! {
             kind:
                 TokenKind::Identifier(_)
                 | TokenKind::Plus
+                | TokenKind::Minus
                 | TokenKind::Mult
                 | TokenKind::Div
                 | TokenKind::Not
@@ -78,6 +79,7 @@ impl Ident {
         match &self.identifier.0.kind {
             TokenKind::Identifier(ident) => ident,
             TokenKind::Plus => "+",
+            TokenKind::Minus => "-",
             TokenKind::Mult => "*",
             TokenKind::Div => "/",
             TokenKind::Not => "~",
@@ -376,12 +378,32 @@ pub enum Mnemonic {
 macro_rules! binop {
     ($($name: ident: $child: ident, $op: ty),* $(,)?) => {
         $(
-            #[derive(Parse, Spanned, Debug, Clone, PartialEq)]
-            #[token(Token)]
+            #[derive(Spanned, Debug, Clone, PartialEq)]
             pub struct $name {
                 pub first: $child,
                 #[try_span]
                 pub rest: Vec<($op, $child)>,
+            }
+
+            impl<TS: TokenStream<Token = Token>> Parse<TS> for $name {
+                fn parse(tokens: &mut TS) -> laps::span::Result<Self> {
+                    let first = tokens.parse()?;
+                    let mut rest = Vec::new();
+                    let mut look_ahead = tokens.lookahead();
+                    while look_ahead
+                        .maybe::<_, $op>(|_| unreachable!())?
+                        .maybe::<_, $child>(|_| unreachable!())?
+                        .result()?
+                    {
+                        rest.push((tokens.parse()?, tokens.parse()?));
+                        look_ahead = tokens.lookahead();
+                    }
+                    Ok(Self { first, rest })
+                }
+
+                fn maybe(tokens: &mut TS) -> laps::span::Result<bool> {
+                    $child::maybe(tokens)
+                }
             }
         )*
     };
@@ -405,8 +427,19 @@ pub struct Unary {
 
 impl<TS: TokenStream<Token = Token>> Parse<TS> for Unary {
     fn parse(tokens: &mut TS) -> laps::span::Result<Self> {
+        let mut ops: Vec<Token![unary]> = vec![];
+        while <Token![unary]>::maybe(tokens)? {
+            ops.push(tokens.parse()?);
+        }
+        while !Primary::maybe(tokens)? {
+            if let Some(token) = ops.pop() {
+                tokens.unread(token.0);
+            } else {
+                break;
+            }
+        }
         Ok(Self {
-            ops: tokens.parse()?,
+            ops,
             primary: tokens.parse()?,
         })
     }
