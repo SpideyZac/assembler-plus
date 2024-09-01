@@ -5,6 +5,7 @@ mod link;
 mod parser;
 
 use std::env;
+use std::path::PathBuf;
 use std::process::exit;
 
 use crate::lexer::TokenKind;
@@ -21,7 +22,8 @@ use link::link;
 fn generate_file(fp: &str, imported_files: &mut Vec<String>) -> (Vec<Vec<Statement>>, Span) {
     imported_files.push(fp.to_owned());
 
-    let reader = Reader::from_path(fp).expect("failed to open file");
+    let reader =
+        Reader::from_path(fp).unwrap_or_else(|e| panic!("failed to open file '{fp}': {e}"));
 
     let span = reader.span().clone();
     let lexer = TokenKind::lexer(reader);
@@ -78,12 +80,23 @@ fn main() -> Result<()> {
     args.next(); // Skip the program name
     let fp = args.next().expect("expected file path");
     let op = args.next().expect("expected output path");
+    let meta_file = args.next();
+
+    let _ = env::set_current_dir(
+        PathBuf::from(&fp)
+            .parent()
+            .expect("Failed to get directory of file"),
+    );
+
     let (files, span) = generate_file(&fp, &mut vec![]);
 
-    let output = Assembler::new(files).generate();
+    let (output, meta) = Assembler::new(files).generate();
     if span.error_num() > 0 {
         span.log_summary();
         exit(span.error_num() as i32);
+    }
+    if let Some(meta_file) = meta_file {
+        std::fs::write(meta_file, meta).expect("Failed to write to line nums file");
     }
     let output = link(&output.iter().map(|file| &file[..]).collect::<Vec<_>>());
     if span.error_num() > 0 {

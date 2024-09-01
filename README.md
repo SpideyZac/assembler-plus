@@ -102,8 +102,10 @@ Please create an issue for any suggested features.
 
 ## Usage
 ```bash
-assembler-plus [input file path] [output file path]
+assembler-plus input_file_path output_file_path [meta_file_path]
 ```
+
+The meta file is only used by the vm and is therefore optional.
 
 ## Compiling
 ```bash

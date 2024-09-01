@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::{env, path};
 
 use crate::common::{eval_expression, expression_map_primary};
 use crate::lexer::{Char, Label, Token, TokenKind};
@@ -54,6 +55,7 @@ pub struct Assembler {
     )>,
     next_macro_uuid: u64,
     uuid_stack: Vec<u64>,
+    meta: String,
 }
 
 impl Assembler {
@@ -68,10 +70,11 @@ impl Assembler {
             current_macro_defs: Vec::new(),
             next_macro_uuid: 0,
             uuid_stack: Vec::new(),
+            meta: String::new(),
         }
     }
 
-    pub fn generate(mut self) -> Vec<Vec<Statement>> {
+    pub fn generate(mut self) -> (Vec<Vec<Statement>>, String) {
         let mut output = Vec::new();
         for file in self.files.clone() {
             let mut new_stmts = Vec::new();
@@ -84,7 +87,7 @@ impl Assembler {
             }
             output.push(new_stmts);
         }
-        output
+        (output, self.meta)
     }
 
     fn generate_define(&mut self, define: &mut Define) -> Result<Vec<Statement>, Error> {
@@ -574,9 +577,41 @@ impl Assembler {
         &mut self,
         mut instruction: Instruction,
     ) -> Result<Vec<Statement>, Error> {
+        const PSEUDO_INSTRUCTIONS: [&str; 8] =
+            ["cmp", "mov", "lsh", "inc", "dec", "not", "neg", "test"];
+
         let span = instruction.span();
         match instruction.mnemonic {
             Mnemonic::Mnemonic(_) => {
+                if match instruction.span().file_type() {
+                    laps::span::FileType::File(file) => {
+                        **file
+                            != *env::current_exe()
+                                .expect("Failed to get exe path")
+                                .parent()
+                                .expect("Failed to get exe dir")
+                                .join("resources/core.ap")
+                    }
+                    _ => true,
+                } {
+                    self.meta += &format!(
+                        "{} {} {}\n",
+                        if self.uuid_stack.is_empty() {
+                            "normal"
+                        } else {
+                            "inMacro"
+                        },
+                        instruction.span().start().line,
+                        match instruction.span().file_type() {
+                            laps::span::FileType::File(name) => path::absolute(name)
+                                .expect("Couldn't get absolute path")
+                                .to_str()
+                                .expect("Failed to get path to file")
+                                .to_owned(),
+                            _ => unreachable!(),
+                        }
+                    );
+                }
                 instruction.operands.iter_mut().try_for_each(|operand| {
                     expression_map_primary(operand, &mut |primary| self.map_primary(primary))
                 })?;
@@ -586,6 +621,33 @@ impl Assembler {
                 ))])
             }
             Mnemonic::MacroCall(name) => {
+                if PSEUDO_INSTRUCTIONS.contains(&name.get_name().to_lowercase().as_str()) {
+                    self.meta += &format!(
+                        "normal {} {}\n",
+                        name.span().start().line,
+                        match name.span().file_type() {
+                            laps::span::FileType::File(name) => path::absolute(name)
+                                .expect("Couldn't get absolute path")
+                                .to_str()
+                                .expect("Failed to get path to file")
+                                .to_owned(),
+                            _ => unreachable!(),
+                        }
+                    );
+                } else if self.uuid_stack.is_empty() {
+                    self.meta += &format!(
+                        "macroCall {} {}\n",
+                        name.span().start().line,
+                        match name.span().file_type() {
+                            laps::span::FileType::File(name) => path::absolute(name)
+                                .expect("Couldn't get absolute path")
+                                .to_str()
+                                .expect("Failed to get path to file")
+                                .to_owned(),
+                            _ => unreachable!(),
+                        }
+                    );
+                }
                 self.generate_macro_call(name.span(), span, name.get_name(), instruction.operands)
             }
         }
