@@ -27,7 +27,20 @@ token_ast! {
                 | TokenKind::Gt
                 | TokenKind::Le
                 | TokenKind::Lt
-                | TokenKind::In,
+                | TokenKind::In
+                | TokenKind::Macro
+                | TokenKind::EndMacro
+                | TokenKind::IncludeMacro
+                | TokenKind::IfMacro
+                | TokenKind::IfDefMacro
+                | TokenKind::IfUndefMacro
+                | TokenKind::ElifMacro
+                | TokenKind::ElifDefMacro
+                | TokenKind::ElifUndefMacro
+                | TokenKind::ElseMacro
+                | TokenKind::EndIfMacro
+                | TokenKind::ForMacro
+                | TokenKind::EndForMacro,
             prompt: "identifier"
         },
         [chr] => { kind: TokenKind::Char(_), prompt: "character literal" },
@@ -92,6 +105,19 @@ impl Ident {
             TokenKind::Le => "<=",
             TokenKind::Lt => "<",
             TokenKind::In => "in",
+            TokenKind::Macro => "%macro",
+            TokenKind::EndMacro => "%endmacro",
+            TokenKind::IncludeMacro => "%include",
+            TokenKind::IfMacro => "%if",
+            TokenKind::IfDefMacro => "%ifdef",
+            TokenKind::IfUndefMacro => "%ifundef",
+            TokenKind::ElifMacro => "%elif",
+            TokenKind::ElifDefMacro => "%elifdef",
+            TokenKind::ElifUndefMacro => "%elifundef",
+            TokenKind::ElseMacro => "%else",
+            TokenKind::EndIfMacro => "%endif",
+            TokenKind::ForMacro => "%for",
+            TokenKind::EndForMacro => "%endfor",
             _ => unreachable!(),
         }
     }
@@ -130,7 +156,6 @@ pub enum Symbol {
 #[derive(Parse, Spanned, Debug, Clone)]
 #[token(Token)]
 pub enum Statement {
-    Instruction(Instruction),
     Define(Define),
     Undefine(Undefine),
     Label(Token![label]),
@@ -139,6 +164,7 @@ pub enum Statement {
     IncludeMacro(IncludeMacro),
     If(IfChain),
     ForMacro(ForMacro),
+    Instruction(Instruction),
     #[allow(dead_code)]
     Newline(Token![nl]),
 }
@@ -169,12 +195,31 @@ pub struct IfChain {
     _endif: Token![endif],
 }
 
-#[derive(Parse, Debug, Clone)]
-#[token(Token)]
+#[derive(Debug, Clone)]
 pub struct Else {
     _else_macro: Token![else],
     _nl: Token![nl],
     pub stmts: Vec<Statement>,
+}
+
+impl<TS: TokenStream<Token = Token>> Parse<TS> for Else {
+    fn parse(tokens: &mut TS) -> laps::span::Result<Self> {
+        let _else_macro = tokens.parse()?;
+        let _nl = tokens.parse()?;
+        let mut stmts = vec![];
+        while !matches!(tokens.peek()?.kind, TokenKind::EndIfMacro) {
+            stmts.push(tokens.parse()?);
+        }
+        Ok(Self {
+            _else_macro,
+            _nl,
+            stmts,
+        })
+    }
+
+    fn maybe(tokens: &mut TS) -> laps::span::Result<bool> {
+        <Token![else]>::maybe(tokens)
+    }
 }
 
 #[derive(Spanned, Debug, Clone)]
@@ -218,11 +263,25 @@ pub struct IfMacro<T: Spanned> {
 
 impl<TS: TokenStream<Token = Token>, T: Parse<TS> + Spanned> Parse<TS> for IfMacro<T> {
     fn parse(tokens: &mut TS) -> laps::span::Result<Self> {
+        let _if_macro = tokens.parse()?;
+        let expression = tokens.parse()?;
+        let _nl = tokens.parse()?;
+        let mut stmts = vec![];
+        while !matches!(
+            tokens.peek()?.kind,
+            TokenKind::ElifMacro
+                | TokenKind::ElifDefMacro
+                | TokenKind::ElifUndefMacro
+                | TokenKind::ElseMacro
+                | TokenKind::EndIfMacro
+        ) {
+            stmts.push(tokens.parse()?)
+        }
         Ok(Self {
-            _if_macro: tokens.parse()?,
-            expression: tokens.parse()?,
-            _nl: tokens.parse()?,
-            stmts: tokens.parse()?,
+            _if_macro,
+            expression,
+            _nl,
+            stmts,
         })
     }
 
@@ -243,11 +302,25 @@ pub struct IfDefMacro<T: Spanned> {
 
 impl<TS: TokenStream<Token = Token>, T: Parse<TS> + Spanned> Parse<TS> for IfDefMacro<T> {
     fn parse(tokens: &mut TS) -> laps::span::Result<Self> {
+        let _ifdef_macro = tokens.parse()?;
+        let identifier = tokens.parse()?;
+        let _nl = tokens.parse()?;
+        let mut stmts = vec![];
+        while !matches!(
+            tokens.peek()?.kind,
+            TokenKind::ElifMacro
+                | TokenKind::ElifDefMacro
+                | TokenKind::ElifUndefMacro
+                | TokenKind::ElseMacro
+                | TokenKind::EndIfMacro
+        ) {
+            stmts.push(tokens.parse()?)
+        }
         Ok(Self {
-            _ifdef_macro: tokens.parse()?,
-            identifier: tokens.parse()?,
-            _nl: tokens.parse()?,
-            stmts: tokens.parse()?,
+            _ifdef_macro,
+            identifier,
+            _nl,
+            stmts,
         })
     }
 
@@ -268,11 +341,25 @@ pub struct IfUndefMacro<T: Spanned> {
 
 impl<TS: TokenStream<Token = Token>, T: Parse<TS> + Spanned> Parse<TS> for IfUndefMacro<T> {
     fn parse(tokens: &mut TS) -> laps::span::Result<Self> {
+        let _ifundef_macro = tokens.parse()?;
+        let identifier = tokens.parse()?;
+        let _nl = tokens.parse()?;
+        let mut stmts = vec![];
+        while !matches!(
+            tokens.peek()?.kind,
+            TokenKind::ElifMacro
+                | TokenKind::ElifDefMacro
+                | TokenKind::ElifUndefMacro
+                | TokenKind::ElseMacro
+                | TokenKind::EndIfMacro
+        ) {
+            stmts.push(tokens.parse()?)
+        }
         Ok(Self {
-            _ifundef_macro: tokens.parse()?,
-            identifier: tokens.parse()?,
-            _nl: tokens.parse()?,
-            stmts: tokens.parse()?,
+            _ifundef_macro,
+            identifier,
+            _nl,
+            stmts,
         })
     }
 
@@ -320,8 +407,7 @@ impl Spanned for Sequence {
     }
 }
 
-#[derive(Parse, Spanned, Debug, Clone)]
-#[token(Token)]
+#[derive(Spanned, Debug, Clone)]
 pub struct ForMacro {
     _for_macro: Token![formacro],
     pub ident: Ident,
@@ -331,6 +417,36 @@ pub struct ForMacro {
     pub stmts: Vec<Statement>,
     _end_for: Token![endfor],
     _nl2: Token![nl],
+}
+
+impl<TS: TokenStream<Token = Token>> Parse<TS> for ForMacro {
+    fn parse(tokens: &mut TS) -> laps::span::Result<Self> {
+        let _for_macro = tokens.parse()?;
+        let ident = tokens.parse()?;
+        let _in = tokens.parse()?;
+        let expr = tokens.parse()?;
+        let _nl = tokens.parse()?;
+        let mut stmts = vec![];
+        while !matches!(tokens.peek()?.kind, TokenKind::EndForMacro) {
+            stmts.push(tokens.parse()?);
+        }
+        let _end_for = tokens.parse()?;
+        let _nl2 = tokens.parse()?;
+        Ok(Self {
+            _for_macro,
+            ident,
+            _in,
+            expr,
+            _nl,
+            stmts,
+            _end_for,
+            _nl2,
+        })
+    }
+
+    fn maybe(tokens: &mut TS) -> laps::span::Result<bool> {
+        <Token![formacro]>::maybe(tokens)
+    }
 }
 
 #[derive(Parse, Spanned, Debug, Clone)]
@@ -503,7 +619,10 @@ impl<TS: TokenStream<Token = Token>> Parse<TS> for MacroDefinition {
             None
         };
         let _nl2 = tokens.parse()?;
-        let body = tokens.parse()?;
+        let mut body = vec![];
+        while !matches!(tokens.peek()?.kind, TokenKind::EndMacro) {
+            body.push(tokens.parse()?);
+        }
         let _end = tokens.parse()?;
         let _nl = tokens.parse()?;
         Ok(Self {
